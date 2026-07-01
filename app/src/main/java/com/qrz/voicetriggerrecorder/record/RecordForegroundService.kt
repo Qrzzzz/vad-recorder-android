@@ -47,6 +47,8 @@ class RecordForegroundService : Service() {
     private var engineJob: Job? = null
     private var autoStopJob: Job? = null
     private var listeningStartedAtMs: Long? = null
+    private var foregroundShown = false
+    private var preserveUiStateOnDestroy = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
@@ -55,11 +57,14 @@ class RecordForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand action=${intent?.action}")
-        when (intent?.action) {
-            ACTION_STOP -> stopServiceSafely()
+        val action = intent?.action
+        Log.i(TAG, "onStartCommand action=$action")
+        when (action) {
+            ACTION_START -> startServiceSafely()
+            ACTION_STOP -> closeAndStop(RecordingCloseReason.ManualStop)
             ACTION_REFRESH_SETTINGS -> refreshSessionSettingsIfRunning()
-            else -> startServiceSafely()
+            null -> handleUnexpectedStart("null action", startId)
+            else -> handleUnexpectedStart("unknown action=$action", startId)
         }
         return START_NOT_STICKY
     }
@@ -72,10 +77,25 @@ class RecordForegroundService : Service() {
             return
         }
 
-        val sensitivityPreset = RecorderPreferences(applicationContext).loadSensitivityPreset()
+        val preferences = RecorderPreferences(applicationContext)
+        val sensitivityPreset = preferences.loadSensitivityPreset()
+        RecordingStateMachine.cleanupStalePartialFiles(applicationContext)
+        val captureEngine = AudioCaptureEngine(applicationContext, sensitivityPreset) { mutation ->
+            applyUiMutation(mutation)
+        }
+
+        try {
+            createNotificationChannel()
+            startAsForeground()
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to start foreground service", e)
+            captureEngine.close(RecordingCloseReason.ServiceStop)
+            handleStartupFailure(e, RecorderPhase.RECORDER_FAILED)
+            return
+        }
+
         listeningStartedAtMs = System.currentTimeMillis()
-        createNotificationChannel()
-        startAsForeground()
+        engine = captureEngine
 
         applyUiMutation {
             RecorderUiState(
@@ -84,79 +104,110 @@ class RecordForegroundService : Service() {
             )
         }
 
-        engine = AudioCaptureEngine(applicationContext, sensitivityPreset) { mutation ->
-            applyUiMutation(mutation)
-        }
-        refreshSessionSettingsIfRunning()
-
         engineJob = scope.launch {
+            var closeReason = RecordingCloseReason.ServiceStop
             try {
-                engine?.start()
+                closeReason = captureEngine.start()
             } catch (e: Exception) {
                 Log.e(TAG, "Audio capture engine failed", e)
-                applyUiMutation { current ->
-                    current.copy(
-                        serviceRunning = true,
-                        recorderPhase = RecorderPhase.MICROPHONE_SETUP_FAILED,
-                        errorMessage = e.message,
-                        speechDetected = false,
-                        countdownRemainingMs = null,
-                        autoStopAtMs = _uiState.value.autoStopAtMs
-                    )
-                }
+                handleStartupFailure(e, RecorderPhase.MICROPHONE_SETUP_FAILED)
+                return@launch
             } finally {
-                engine = null
+                if (engine === captureEngine) {
+                    engine = null
+                }
                 engineJob = null
-                Log.i(TAG, "Engine loop exited")
+                Log.i(TAG, "Engine loop exited reason=$closeReason")
             }
+
+            if (closeReason == RecordingCloseReason.ReadError) {
+                finishStoppedService(preserveFailureState = true)
+            }
+        }
+
+        refreshSessionSettingsIfRunning()
+    }
+
+    private fun closeAndStop(reason: RecordingCloseReason) {
+        Log.i(TAG, "Stopping service reason=$reason")
+        scope.launch {
+            closeEngine(reason)
+            finishStoppedService(preserveFailureState = false)
         }
     }
 
-    private fun stopServiceSafely() {
-        Log.i(TAG, "Stopping service")
-        scope.launch {
-            try {
-                autoStopJob?.cancel()
-                autoStopJob = null
-                engine?.stop()
-                engineJob?.join()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to stop engine", e)
-            } finally {
+    private suspend fun closeEngine(reason: RecordingCloseReason) {
+        autoStopJob?.cancel()
+        autoStopJob = null
+
+        val activeEngine = engine
+        val activeJob = engineJob
+
+        try {
+            activeEngine?.close(reason)
+            activeJob?.join()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop engine", e)
+        } finally {
+            if (engine === activeEngine) {
                 engine = null
+            }
+            if (engineJob === activeJob) {
                 engineJob = null
-                listeningStartedAtMs = null
             }
+            listeningStartedAtMs = null
+        }
+    }
 
+    private fun finishStoppedService(
+        preserveFailureState: Boolean,
+        requestStopSelf: Boolean = true
+    ) {
+        preserveUiStateOnDestroy = preserveFailureState
+        autoStopJob?.cancel()
+        autoStopJob = null
+        listeningStartedAtMs = null
+
+        if (preserveFailureState) {
+            applyUiMutation { current ->
+                current.copy(
+                    serviceRunning = false,
+                    currentFileName = null,
+                    speechDetected = false,
+                    countdownRemainingMs = null,
+                    autoStopAtMs = null
+                )
+            }
+        } else {
             applyUiMutation { RecorderUiState() }
+        }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
-            }
+        stopForegroundIfNeeded()
+        if (requestStopSelf) {
             stopSelf()
         }
     }
 
     override fun onDestroy() {
         Log.i(TAG, "Service destroying")
-        try {
-            engine?.stop()
-        } catch (_: Throwable) {
-        }
-        autoStopJob?.cancel()
-        autoStopJob = null
-        engine = null
-        engineJob = null
-        listeningStartedAtMs = null
+        engine?.close(RecordingCloseReason.Destroy)
+        finishStoppedService(
+            preserveFailureState = preserveUiStateOnDestroy,
+            requestStopSelf = false
+        )
         scope.cancel()
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.i(TAG, "Task removed, stopping service")
+        closeAndStop(RecordingCloseReason.ServiceStop)
+        super.onTaskRemoved(rootIntent)
+    }
+
     private fun refreshSessionSettingsIfRunning() {
         if (engineJob?.isActive != true && engine == null) {
+            stopSelf()
             return
         }
 
@@ -187,15 +238,62 @@ class RecordForegroundService : Service() {
         val remainingMs = autoStopAtMs - System.currentTimeMillis()
         if (remainingMs <= 0L) {
             Log.i(TAG, "Auto-stop deadline already reached, stopping service now")
-            stopServiceSafely()
+            closeAndStop(RecordingCloseReason.ServiceStop)
             return
         }
 
         autoStopJob = scope.launch {
             delay(remainingMs)
             Log.i(TAG, "Auto-stop deadline reached")
-            stopServiceSafely()
+            closeAndStop(RecordingCloseReason.ServiceStop)
         }
+    }
+
+    private fun handleUnexpectedStart(reason: String, startId: Int) {
+        Log.w(TAG, "Ignoring service start with $reason")
+        if (engineJob?.isActive == true || engine != null) {
+            closeAndStop(RecordingCloseReason.ServiceStop)
+        } else {
+            applyUiMutation { RecorderUiState() }
+            stopForegroundIfNeeded()
+            stopSelf(startId)
+        }
+    }
+
+    private fun handleStartupFailure(error: Exception, phase: RecorderPhase) {
+        autoStopJob?.cancel()
+        autoStopJob = null
+        engine?.close(RecordingCloseReason.ServiceStop)
+        engine = null
+        engineJob = null
+        listeningStartedAtMs = null
+        preserveUiStateOnDestroy = true
+
+        applyUiMutation { current ->
+            current.copy(
+                serviceRunning = false,
+                recorderPhase = phase,
+                errorMessage = error.message,
+                speechDetected = false,
+                countdownRemainingMs = null,
+                currentFileName = null,
+                autoStopAtMs = null
+            )
+        }
+
+        stopForegroundIfNeeded()
+        stopSelf()
+    }
+
+    private fun stopForegroundIfNeeded() {
+        if (!foregroundShown) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+        foregroundShown = false
     }
 
     private fun createNotificationChannel() {
@@ -248,6 +346,7 @@ class RecordForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        foregroundShown = true
         Log.i(TAG, "Foreground notification shown")
     }
 }
