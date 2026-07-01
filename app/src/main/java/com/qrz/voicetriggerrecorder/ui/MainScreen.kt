@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -107,24 +108,33 @@ fun MainScreen() {
     }
     var resumeTick by remember { mutableIntStateOf(0) }
     var filePendingDelete by remember { mutableStateOf<RecordingFile?>(null) }
+    var fileLoadError by remember { mutableStateOf<String?>(null) }
     var playingPath by remember { mutableStateOf<String?>(null) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     val playerHolder = remember { mutableStateOf<MediaPlayer?>(null) }
-
-    fun refreshFiles() {
-        val latestFiles = repository.listRecordings()
-        files = latestFiles
-        if (playingPath != null && latestFiles.none { it.path == playingPath }) {
-            playerHolder.value?.release()
-            playerHolder.value = null
-            playingPath = null
-        }
-    }
 
     fun stopPlayback() {
         playerHolder.value?.release()
         playerHolder.value = null
         playingPath = null
+    }
+
+    fun refreshFiles() {
+        runCatching { repository.listRecordings() }
+            .onSuccess { latestFiles ->
+                fileLoadError = null
+                files = latestFiles
+                if (playingPath != null && latestFiles.none { it.path == playingPath }) {
+                    playerHolder.value?.release()
+                    playerHolder.value = null
+                    playingPath = null
+                }
+            }
+            .onFailure {
+                files = emptyList()
+                fileLoadError = context.getString(R.string.error_recordings_load_failed)
+                stopPlayback()
+            }
     }
 
     fun playOrStop(file: RecordingFile) {
@@ -243,96 +253,102 @@ fun MainScreen() {
             powerManager != null && !powerManager.isIgnoringBatteryOptimizations(context.packageName)
         }
     }
+    val readinessNeedsAttention = !audioPermissionGranted ||
+        !notificationPermissionGranted ||
+        batteryOptimizationEnabled
 
     val latestRecording = remember(files) { files.maxByOrNull { it.lastModified } }
     val nightGroups = remember(files) { buildNightGroups(files) }
     val latestNightGroup = nightGroups.firstOrNull()
 
-    MaterialTheme {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            bottomBar = {
-                TabRow(selectedTabIndex = selectedTab.ordinal) {
-                    MainTab.entries.forEach { tab ->
-                        Tab(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
-                            text = { Text(stringResource(tab.titleRes)) }
-                        )
-                    }
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            TabRow(selectedTabIndex = selectedTab.ordinal) {
+                MainTab.entries.forEach { tab ->
+                    Tab(
+                        selected = selectedTab == tab,
+                        onClick = { selectedTab = tab },
+                        text = { Text(stringResource(tab.titleRes)) }
+                    )
                 }
             }
-        ) { padding ->
-            when (selectedTab) {
-                MainTab.HOME -> {
-                    HomeTabContent(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(padding),
-                        uiState = uiState,
-                        latestRecording = latestRecording,
-                        autoStopEnabled = autoStopEnabled,
-                        autoStopHours = autoStopHours,
-                        errorMessage = uiState.errorMessage,
-                        permissionDeniedPermanently = permissionDeniedPermanently,
-                        audioPermissionGranted = audioPermissionGranted,
-                        latestNightGroup = latestNightGroup,
-                        nightGroups = nightGroups,
-                        playingPath = playingPath,
-                        playbackError = playbackError,
-                        onPrimaryAction = {
-                            when {
-                                permissionDeniedPermanently -> openAppSettings(context)
-                                uiState.serviceRunning -> stopService(context)
-                                audioPermissionGranted -> {
-                                    startService(context)
-                                    requestNotificationIfNeeded(context, notificationPermissionLauncher)
-                                }
-                                else -> audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    ) { padding ->
+        when (selectedTab) {
+            MainTab.HOME -> {
+                HomeTabContent(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    uiState = uiState,
+                    latestRecording = latestRecording,
+                    autoStopEnabled = autoStopEnabled,
+                    autoStopHours = autoStopHours,
+                    errorMessage = uiState.errorMessage,
+                    fileLoadError = fileLoadError,
+                    permissionDeniedPermanently = permissionDeniedPermanently,
+                    audioPermissionGranted = audioPermissionGranted,
+                    notificationPermissionGranted = notificationPermissionGranted,
+                    batteryOptimizationEnabled = batteryOptimizationEnabled,
+                    latestNightGroup = latestNightGroup,
+                    nightGroups = nightGroups,
+                    playingPath = playingPath,
+                    playbackError = playbackError,
+                    readinessNeedsAttention = readinessNeedsAttention,
+                    onPrimaryAction = {
+                        when {
+                            permissionDeniedPermanently -> openAppSettings(context)
+                            uiState.serviceRunning -> stopService(context)
+                            audioPermissionGranted -> {
+                                startService(context)
+                                requestNotificationIfNeeded(context, notificationPermissionLauncher)
                             }
-                        },
-                        onRefresh = { refreshFiles() },
-                        onPlayPause = { playOrStop(it) },
-                        onDelete = { filePendingDelete = it }
-                    )
-                }
+                            else -> audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    onRefresh = { refreshFiles() },
+                    onPlayPause = { playOrStop(it) },
+                    onDelete = { filePendingDelete = it },
+                    onOpenSettingsTab = { selectedTab = MainTab.SETTINGS }
+                )
+            }
 
-                MainTab.SETTINGS -> {
-                    SettingsTabContent(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(padding),
-                        serviceRunning = uiState.serviceRunning,
-                        selectedLanguage = selectedLanguage,
-                        selectedPreset = selectedPreset,
-                        autoStopEnabled = autoStopEnabled,
-                        autoStopHours = autoStopHours,
-                        audioPermissionGranted = audioPermissionGranted,
-                        permissionDeniedPermanently = permissionDeniedPermanently,
-                        notificationPermissionGranted = notificationPermissionGranted,
-                        batteryOptimizationEnabled = batteryOptimizationEnabled,
-                        onPresetSelected = { preset ->
-                            selectedPreset = preset
-                            preferences.saveSensitivityPreset(preset)
-                        },
-                        onLanguageSelected = { language -> saveLanguage(language) },
-                        onAutoStopEnabledChange = { enabled ->
-                            autoStopEnabled = enabled
-                            saveAutoStop(if (enabled) autoStopHours else 0)
-                        },
-                        onAutoStopHoursDraftChange = { hours ->
-                            autoStopHours = hours.coerceIn(1, 12)
-                        },
-                        onAutoStopHoursCommit = {
-                            if (autoStopEnabled) {
-                                saveAutoStop(autoStopHours)
-                            }
-                        },
-                        onOpenAppSettings = { openAppSettings(context) },
-                        onOpenNotificationSettings = { openNotificationSettings(context) },
-                        onOpenBatterySettings = { openBatteryOptimizationSettings(context) }
-                    )
-                }
+            MainTab.SETTINGS -> {
+                SettingsTabContent(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    serviceRunning = uiState.serviceRunning,
+                    selectedLanguage = selectedLanguage,
+                    selectedPreset = selectedPreset,
+                    autoStopEnabled = autoStopEnabled,
+                    autoStopHours = autoStopHours,
+                    audioPermissionGranted = audioPermissionGranted,
+                    permissionDeniedPermanently = permissionDeniedPermanently,
+                    notificationPermissionGranted = notificationPermissionGranted,
+                    batteryOptimizationEnabled = batteryOptimizationEnabled,
+                    onPresetSelected = { preset ->
+                        selectedPreset = preset
+                        preferences.saveSensitivityPreset(preset)
+                    },
+                    onLanguageSelected = { language -> saveLanguage(language) },
+                    onAutoStopEnabledChange = { enabled ->
+                        autoStopEnabled = enabled
+                        saveAutoStop(if (enabled) autoStopHours else 0)
+                    },
+                    onAutoStopHoursDraftChange = { hours ->
+                        autoStopHours = hours.coerceIn(1, 12)
+                    },
+                    onAutoStopHoursCommit = {
+                        if (autoStopEnabled) {
+                            saveAutoStop(autoStopHours)
+                        }
+                    },
+                    onOpenAppSettings = { openAppSettings(context) },
+                    onOpenNotificationSettings = { openNotificationSettings(context) },
+                    onOpenBatterySettings = { openBatteryOptimizationSettings(context) }
+                )
             }
         }
     }
@@ -375,16 +391,21 @@ private fun HomeTabContent(
     autoStopEnabled: Boolean,
     autoStopHours: Int,
     errorMessage: String?,
+    fileLoadError: String?,
     permissionDeniedPermanently: Boolean,
     audioPermissionGranted: Boolean,
+    notificationPermissionGranted: Boolean,
+    batteryOptimizationEnabled: Boolean,
     latestNightGroup: NightRecordingGroup?,
     nightGroups: List<NightRecordingGroup>,
     playingPath: String?,
     playbackError: String?,
+    readinessNeedsAttention: Boolean,
     onPrimaryAction: () -> Unit,
     onRefresh: () -> Unit,
     onPlayPause: (RecordingFile) -> Unit,
-    onDelete: (RecordingFile) -> Unit
+    onDelete: (RecordingFile) -> Unit,
+    onOpenSettingsTab: () -> Unit
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 20.dp),
@@ -406,6 +427,20 @@ private fun HomeTabContent(
         }
 
         item {
+            ActiveRecordingCard(uiState = uiState)
+        }
+
+        item {
+            ReadinessCard(
+                audioPermissionGranted = audioPermissionGranted,
+                notificationPermissionGranted = notificationPermissionGranted,
+                batteryOptimizationEnabled = batteryOptimizationEnabled,
+                needsAttention = readinessNeedsAttention,
+                onOpenSettingsTab = onOpenSettingsTab
+            )
+        }
+
+        item {
             StatusOverviewCard(
                 uiState = uiState,
                 latestRecording = latestRecording,
@@ -417,6 +452,7 @@ private fun HomeTabContent(
         item {
             PrimaryActionsCard(
                 serviceRunning = uiState.serviceRunning,
+                recorderPhase = uiState.recorderPhase,
                 permissionDeniedPermanently = permissionDeniedPermanently,
                 audioPermissionGranted = audioPermissionGranted,
                 onPrimaryAction = onPrimaryAction,
@@ -428,6 +464,15 @@ private fun HomeTabContent(
             item {
                 TipCard(
                     title = stringResource(R.string.tip_recorder_error_title),
+                    body = message
+                )
+            }
+        }
+
+        fileLoadError?.let { message ->
+            item {
+                TipCard(
+                    title = stringResource(R.string.tip_storage_error_title),
                     body = message
                 )
             }
@@ -494,6 +539,140 @@ private fun HomeTabContent(
 
         item {
             Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun ActiveRecordingCard(uiState: RecorderUiState) {
+    if (
+        uiState.recorderPhase != RecorderPhase.RECORDING &&
+        uiState.recorderPhase != RecorderPhase.WAITING_TO_FINISH
+    ) {
+        return
+    }
+
+    val context = LocalContext.current
+    val activelyRecording = uiState.recorderPhase == RecorderPhase.RECORDING
+    val containerColor = if (activelyRecording) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.secondaryContainer
+    }
+    val contentColor = if (activelyRecording) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    val bodyText = if (activelyRecording) {
+        stringResource(R.string.recording_attention_body)
+    } else {
+        stringResource(
+            R.string.recording_wrap_up_body,
+            formatCountdown(context, uiState.countdownRemainingMs ?: 0L)
+        )
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = if (activelyRecording) {
+                    stringResource(R.string.recording_attention_title)
+                } else {
+                    stringResource(R.string.recording_wrap_up_title)
+                },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = bodyText,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            uiState.currentFileName?.let { fileName ->
+                Text(
+                    text = stringResource(R.string.recording_attention_file, fileName),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadinessCard(
+    audioPermissionGranted: Boolean,
+    notificationPermissionGranted: Boolean,
+    batteryOptimizationEnabled: Boolean,
+    needsAttention: Boolean,
+    onOpenSettingsTab: () -> Unit
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                stringResource(R.string.readiness_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                if (needsAttention) {
+                    stringResource(R.string.readiness_attention_body)
+                } else {
+                    stringResource(R.string.readiness_ready_body)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            InfoLine(
+                stringResource(R.string.readiness_microphone_label),
+                if (audioPermissionGranted) {
+                    stringResource(R.string.readiness_microphone_ready)
+                } else {
+                    stringResource(R.string.readiness_microphone_missing)
+                }
+            )
+            InfoLine(
+                stringResource(R.string.readiness_notifications_label),
+                if (notificationPermissionGranted) {
+                    stringResource(R.string.readiness_notifications_ready)
+                } else {
+                    stringResource(R.string.readiness_notifications_missing)
+                }
+            )
+            InfoLine(
+                stringResource(R.string.readiness_battery_label),
+                if (batteryOptimizationEnabled) {
+                    stringResource(R.string.readiness_battery_missing)
+                } else {
+                    stringResource(R.string.readiness_battery_ready)
+                }
+            )
+
+            if (needsAttention) {
+                OutlinedButton(
+                    onClick = onOpenSettingsTab,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.readiness_action))
+                }
+            }
         }
     }
 }
@@ -687,7 +866,7 @@ private fun StatusOverviewCard(
                 )
                 InfoLine(
                     stringResource(R.string.label_last_captured_at),
-                    "${formatDateTime(context, file.lastModified)} · ${formatDuration(context, file.durationMs)}"
+                    "${formatDateTime(context, file.lastModified)} / ${formatDuration(context, file.durationMs)}"
                 )
             }
 
@@ -757,6 +936,7 @@ private fun LanguageCard(
 @Composable
 private fun PrimaryActionsCard(
     serviceRunning: Boolean,
+    recorderPhase: RecorderPhase,
     permissionDeniedPermanently: Boolean,
     audioPermissionGranted: Boolean,
     onPrimaryAction: () -> Unit,
@@ -795,10 +975,22 @@ private fun PrimaryActionsCard(
             }
 
             Text(
-                if (serviceRunning) {
-                    stringResource(R.string.primary_action_running_body)
-                } else {
-                    stringResource(R.string.primary_action_stopped_body)
+                when {
+                    recorderPhase == RecorderPhase.RECORDING -> {
+                        stringResource(R.string.primary_action_recording_body)
+                    }
+
+                    recorderPhase == RecorderPhase.WAITING_TO_FINISH -> {
+                        stringResource(R.string.primary_action_finishing_body)
+                    }
+
+                    serviceRunning -> {
+                        stringResource(R.string.primary_action_running_body)
+                    }
+
+                    else -> {
+                        stringResource(R.string.primary_action_stopped_body)
+                    }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1048,7 +1240,7 @@ private fun RecordingItemCard(
             fontWeight = FontWeight.Medium
         )
         Text(
-            "${formatDateTime(context, file.lastModified)} · ${formatDuration(context, file.durationMs)} · ${formatFileSize(context, file.sizeBytes)}",
+            "${formatDateTime(context, file.lastModified)} / ${formatDuration(context, file.durationMs)} / ${formatFileSize(context, file.sizeBytes)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

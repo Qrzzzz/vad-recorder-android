@@ -49,6 +49,22 @@ class RecordForegroundService : Service() {
     private var listeningStartedAtMs: Long? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    private fun applyUiMutationAndRefreshNotification(mutation: RecorderUiStateMutation) {
+        val before = uiState.value
+        applyUiMutation(mutation)
+        val after = uiState.value
+        if (
+            before.recorderPhase != after.recorderPhase ||
+            before.currentFileName != after.currentFileName ||
+            before.errorMessage != after.errorMessage
+        ) {
+            scope.launch(Dispatchers.Main.immediate) {
+                createNotificationChannel()
+                startAsForeground()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Service created")
@@ -75,9 +91,8 @@ class RecordForegroundService : Service() {
         val sensitivityPreset = RecorderPreferences(applicationContext).loadSensitivityPreset()
         listeningStartedAtMs = System.currentTimeMillis()
         createNotificationChannel()
-        startAsForeground()
 
-        applyUiMutation {
+        applyUiMutationAndRefreshNotification {
             RecorderUiState(
                 serviceRunning = true,
                 recorderPhase = RecorderPhase.LISTENING
@@ -85,7 +100,7 @@ class RecordForegroundService : Service() {
         }
 
         engine = AudioCaptureEngine(applicationContext, sensitivityPreset) { mutation ->
-            applyUiMutation(mutation)
+            applyUiMutationAndRefreshNotification(mutation)
         }
         refreshSessionSettingsIfRunning()
 
@@ -94,7 +109,7 @@ class RecordForegroundService : Service() {
                 engine?.start()
             } catch (e: Exception) {
                 Log.e(TAG, "Audio capture engine failed", e)
-                applyUiMutation { current ->
+                applyUiMutationAndRefreshNotification { current ->
                     current.copy(
                         serviceRunning = true,
                         recorderPhase = RecorderPhase.MICROPHONE_SETUP_FAILED,
@@ -226,9 +241,27 @@ class RecordForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val currentState = uiState.value
+        val notificationTitle = when (currentState.recorderPhase) {
+            RecorderPhase.RECORDING -> getString(R.string.notification_title_recording)
+            RecorderPhase.WAITING_TO_FINISH -> getString(R.string.notification_title_finishing)
+            RecorderPhase.MICROPHONE_SETUP_FAILED,
+            RecorderPhase.RECORDER_FAILED -> getString(R.string.notification_title_error)
+            else -> getString(R.string.notification_title_listening)
+        }
+        val notificationText = when (currentState.recorderPhase) {
+            RecorderPhase.RECORDING -> getString(R.string.notification_text_recording)
+            RecorderPhase.WAITING_TO_FINISH -> getString(R.string.notification_text_finishing)
+            RecorderPhase.MICROPHONE_SETUP_FAILED,
+            RecorderPhase.RECORDER_FAILED -> currentState.errorMessage
+                ?: getString(R.string.notification_text_error)
+            else -> getString(R.string.notification_text_listening)
+        }
+
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
+            .setContentTitle(notificationTitle)
+            .setContentText(notificationText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notificationText))
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setContentIntent(contentIntent)
