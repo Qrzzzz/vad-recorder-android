@@ -31,92 +31,116 @@ class AudioCaptureEngine(
     )
 
     private var running = false
+    @Volatile
+    private var requestedCloseReason = RecordingCloseReason.ServiceStop
     private var audioRecord: AudioRecord? = null
     private var noiseSuppressor: NoiseSuppressor? = null
 
-    suspend fun start() = withContext(Dispatchers.Default) {
+    suspend fun start(): RecordingCloseReason = withContext(Dispatchers.Default) {
         running = true
+        requestedCloseReason = RecordingCloseReason.ServiceStop
         val config = createAudioRecordOrThrow()
-
-        val vad = SimpleVoiceActivityDetector(
-            sampleRate = config.sampleRate,
-            sensitivity = sensitivityPreset.detectorSensitivity
-        )
+        val vad = VadEngineFactory.create(config.sampleRate, sensitivityPreset)
         val recConfig = RecorderConfig(preferredSampleRate = config.sampleRate)
-        val stateMachine = RecordingStateMachine(context, recConfig, applyUiMutation)
+        val stateMachine = RecordingStateMachine(
+            context = context,
+            config = recConfig,
+            vadEngineName = vad.javaClass.simpleName,
+            applyUiMutation = applyUiMutation
+        )
 
-        audioRecord?.startRecording()
+        try {
+            audioRecord?.startRecording()
 
-        val buffer = ShortArray(config.samplesPerFrame)
-        var readCount = 0
-        var consecutiveErrors = 0
-        val logInterval = 50 // log summary every 50 frames (1 second)
-        var lastSpeechDetected = false
-        var lastCountdownSeconds: Long? = null
+            val buffer = ShortArray(config.samplesPerFrame)
+            var readCount = 0
+            var consecutiveErrors = 0
+            val logInterval = 50 // log summary every 50 frames (1 second)
+            var lastSpeechDetected = false
+            var lastCountdownSeconds: Long? = null
 
-        while (running && currentCoroutineContext().isActive) {
-            val read = try {
-                audioRecord?.read(buffer, 0, buffer.size) ?: -1
-            } catch (e: Exception) {
-                Log.e(TAG, "AudioRecord read exception", e)
-                -1
-            }
+            while (running && currentCoroutineContext().isActive) {
+                val read = try {
+                    audioRecord?.read(buffer, 0, buffer.size) ?: -1
+                } catch (e: Exception) {
+                    Log.e(TAG, "AudioRecord read exception", e)
+                    -1
+                }
 
-            if (read > 0) {
-                consecutiveErrors = 0
-                val frame = buffer.copyOf(read)
-                val speech = vad.isSpeech(frame, read)
-                stateMachine.onFrame(frame, speech)
-                val countdownMs = stateMachine.countdownRemainingMs
-                val countdownSeconds = countdownMs?.let { ((it + 999L) / 1000L).coerceAtLeast(0L) }
+                if (read > 0) {
+                    consecutiveErrors = 0
+                    val frame = buffer.copyOf(read)
+                    val vadResult = vad.analyze(frame, read)
+                    val speech = vadResult.isSpeech
+                    stateMachine.onFrame(frame, speech)
+                    val countdownMs = stateMachine.countdownRemainingMs
+                    val countdownSeconds = countdownMs?.let {
+                        ((it + 999L) / 1000L).coerceAtLeast(0L)
+                    }
 
-                if (speech != lastSpeechDetected || countdownSeconds != lastCountdownSeconds) {
-                    lastSpeechDetected = speech
-                    lastCountdownSeconds = countdownSeconds
-                    applyUiMutation { current ->
-                        current.copy(
-                            speechDetected = speech,
-                            countdownRemainingMs = countdownMs
-                        )
+                    if (speech != lastSpeechDetected || countdownSeconds != lastCountdownSeconds) {
+                        lastSpeechDetected = speech
+                        lastCountdownSeconds = countdownSeconds
+                        applyUiMutation { current ->
+                            current.copy(
+                                speechDetected = speech,
+                                countdownRemainingMs = countdownMs
+                            )
+                        }
+                    }
+
+                    readCount++
+                    if (readCount % logInterval == 0) {
+                        val rms = computeRms(frame, read)
+                        val db = 20.0 * kotlin.math.ln(rms / 32768.0 + 1e-9) / kotlin.math.ln(10.0)
+                        val zcr = computeZcr(frame, read)
+                        Log.v(TAG, "rate=${config.sampleRate} rms=${"%.1f".format(rms)} db=${"%.1f".format(db)} zcr=${"%.2f".format(zcr)} speech=$speech")
+                    }
+                } else if (read < 0) {
+                    consecutiveErrors++
+                    Log.e(TAG, "AudioRecord read error: $read (consecutive: $consecutiveErrors)")
+                    if (consecutiveErrors >= 5) {
+                        requestedCloseReason = RecordingCloseReason.ReadError
+                        running = false
+                        applyUiMutation { current ->
+                            current.copy(
+                                serviceRunning = false,
+                                recorderPhase = RecorderPhase.RECORDER_FAILED,
+                                errorMessage = context.getString(R.string.error_audio_reads_failed),
+                                speechDetected = false,
+                                countdownRemainingMs = null,
+                                currentFileName = null
+                            )
+                        }
+                        break
                     }
                 }
-
-                readCount++
-                if (readCount % logInterval == 0) {
-                    val rms = computeRms(frame, read)
-                    val db = 20.0 * kotlin.math.ln(rms / 32768.0 + 1e-9) / kotlin.math.ln(10.0)
-                    val zcr = computeZcr(frame, read)
-                    Log.v(TAG, "rate=${config.sampleRate} rms=${"%.1f".format(rms)} db=${"%.1f".format(db)} zcr=${"%.2f".format(zcr)} speech=$speech")
-                }
-            } else if (read < 0) {
-                consecutiveErrors++
-                Log.e(TAG, "AudioRecord read error: $read (consecutive: $consecutiveErrors)")
-                if (consecutiveErrors >= 5) {
-                    applyUiMutation { current ->
-                        current.copy(
-                            recorderPhase = RecorderPhase.RECORDER_FAILED,
-                            errorMessage = context.getString(R.string.error_audio_reads_failed),
-                            speechDetected = false,
-                            countdownRemainingMs = null,
-                            currentFileName = null
-                        )
-                    }
-                    break
-                }
             }
-        }
 
-        stateMachine.closeCurrentFileIfNeeded(forceSave = true)
-        applyUiMutation { current ->
-            current.copy(
-                speechDetected = false,
-                countdownRemainingMs = null
-            )
+            requestedCloseReason
+        } finally {
+            stateMachine.closeCurrentFileIfNeeded(requestedCloseReason)
+            releaseAudioResources()
+            applyUiMutation { current ->
+                current.copy(
+                    speechDetected = false,
+                    countdownRemainingMs = null
+                )
+            }
         }
     }
 
-    fun stop() {
+    fun close(reason: RecordingCloseReason) {
+        requestedCloseReason = reason
         running = false
+        releaseAudioResources()
+    }
+
+    fun stop() {
+        close(RecordingCloseReason.ServiceStop)
+    }
+
+    private fun releaseAudioResources() {
         try {
             audioRecord?.stop()
         } catch (_: Throwable) {
