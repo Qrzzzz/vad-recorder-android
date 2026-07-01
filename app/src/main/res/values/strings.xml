@@ -13,6 +13,7 @@
     <string name="home_title">Dream Talk Recorder</string>
     <string name="home_subtitle">The app saves clips when voice is detected. Stopping the listener saves the current clip immediately.</string>
     <string name="tip_recorder_error_title">Recorder error</string>
+    <string name="tip_storage_error_title">Could not load saved clips</string>
     <string name="section_last_night_title">Last night summary</string>
     <string name="section_last_night_subtitle">See how many clips were captured, how long they were, and how late the last one happened.</string>
     <string name="section_night_recordings_title">Night recordings</string>
@@ -20,14 +21,32 @@
     <string name="tip_playback_failed_title">Playback failed</string>
     <string name="playback_failed_fallback">Playback failed. Please try again.</string>
     <string name="empty_clips_message">No clips yet. Start listening, place the phone near the bed, and the app will save clips when it hears voice.</string>
+    <string name="recording_attention_title">Recording now</string>
+    <string name="recording_attention_body">Voice has been detected and this clip is already being saved. Leave the phone where it is, or tap Stop to save immediately.</string>
+    <string name="recording_wrap_up_title">Wrapping up current clip</string>
+    <string name="recording_wrap_up_body">No voice is being detected right now. This clip will be saved in %1$s unless new speech starts.</string>
+    <string name="recording_attention_file">Current clip: %1$s</string>
 
     <string name="settings_title">Settings</string>
     <string name="settings_subtitle">Language, auto-stop, and sensitivity all live here. Auto-stop updates the current listening session immediately.</string>
+    <string name="readiness_title">Tonight checklist</string>
+    <string name="readiness_ready_body">Microphone access, notification visibility, and battery settings all look ready for overnight listening.</string>
+    <string name="readiness_attention_body">A few checks still need attention before you leave the phone listening overnight.</string>
+    <string name="readiness_action">Review settings</string>
+    <string name="readiness_microphone_label">Microphone permission</string>
+    <string name="readiness_microphone_ready">Ready</string>
+    <string name="readiness_microphone_missing">Needed before listening can start</string>
+    <string name="readiness_notifications_label">Persistent notification</string>
+    <string name="readiness_notifications_ready">Visible while listening</string>
+    <string name="readiness_notifications_missing">Recommended so you can verify listening is still active</string>
+    <string name="readiness_battery_label">Battery restrictions</string>
+    <string name="readiness_battery_ready">Background listening is less likely to be interrupted</string>
+    <string name="readiness_battery_missing">May interrupt long sessions after the screen turns off</string>
     <string name="language_title">Language</string>
     <string name="language_subtitle">Keep the system language, or force English or Simplified Chinese for the app.</string>
     <string name="language_system">Follow system</string>
     <string name="language_english">English</string>
-    <string name="language_chinese_simplified">简体中文</string>
+    <string name="language_chinese_simplified">Simplified Chinese</string>
     <string name="language_effect_running">The change applies immediately and refreshes the active listening notification.</string>
     <string name="language_effect_stopped">The change applies immediately the next time this screen redraws.</string>
     <string name="tip_microphone_permission_title">Microphone permission is missing</string>
@@ -89,17 +108,19 @@
     <string name="action_start_listening">Start listening</string>
     <string name="action_stop_listening">Stop listening</string>
     <string name="action_refresh_list">Refresh list</string>
-    <string name="primary_action_running_body">Listening is running now. Tapping Stop will close and save the current clip right away.</string>
-    <string name="primary_action_stopped_body">When listening starts, the app keeps detecting voice in a foreground service and saves clips automatically.</string>
+    <string name="primary_action_running_body">Listening is running now. As soon as voice starts, a highlighted recording banner will appear here.</string>
+    <string name="primary_action_recording_body">Recording is in progress now. Tapping Stop will save this clip immediately.</string>
+    <string name="primary_action_finishing_body">The recorder is keeping this clip open during the finish countdown. Tapping Stop will save it immediately.</string>
+    <string name="primary_action_stopped_body">After you start listening, the app waits quietly for voice. A highlighted recording banner appears the moment real recording begins.</string>
 
-    <string name="recording_group_summary">%1$s · %2$s · %3$s</string>
+    <string name="recording_group_summary">%1$s / %2$s / %3$s</string>
     <string name="recording_clip_at">Clip at %1$s</string>
     <string name="night_of">Night of %1$s</string>
 
     <string name="action_stop_playback">Stop playback</string>
     <string name="action_play">Play</string>
 
-    <string name="duration_unknown">unknown duration</string>
+    <string name="duration_unknown">Unknown duration</string>
     <string name="duration_minutes_seconds">%1$dm %2$ds</string>
     <string name="date_pattern_month_day">M/d</string>
     <string name="date_pattern_date_time">M/d HH:mm</string>
@@ -109,6 +130,14 @@
     <string name="notification_channel_description">Foreground service for dream talk voice listening</string>
     <string name="notification_title">Dream Talk Recorder is running</string>
     <string name="notification_text">Listening to the microphone and saving clips when voice is detected</string>
+    <string name="notification_title_listening">Listening for voice</string>
+    <string name="notification_text_listening">The recorder is waiting for speech and will start saving as soon as voice is detected.</string>
+    <string name="notification_title_recording">Recording now</string>
+    <string name="notification_text_recording">Voice was detected and the current clip is being saved right now.</string>
+    <string name="notification_title_finishing">Finishing current clip</string>
+    <string name="notification_text_finishing">The recorder is holding the clip open for the finish countdown in case speech starts again.</string>
+    <string name="notification_title_error">Recorder error</string>
+    <string name="notification_text_error">Open the app to review the recorder error details.</string>
     <string name="notification_action_stop">Stop</string>
 
     <string name="recorder_state_idle">Idle</string>
@@ -121,6 +150,7 @@
 
     <string name="error_audio_reads_failed">Audio reads failed repeatedly.</string>
     <string name="error_microphone_init_failed">Could not initialize the microphone. Check permission or close any other app that is using it.</string>
+    <string name="error_recordings_load_failed">Saved clips could not be loaded this time. Refresh later or reopen the app after storage becomes available.</string>
 
     <plurals name="clip_count">
         <item quantity="one">%d clip</item>

@@ -12,8 +12,8 @@ android {
         applicationId = "com.qrz.voicetriggerrecorder"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.0"
+        versionCode = 5
+        versionName = "1.2"
     }
 
     buildTypes {
@@ -23,6 +23,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "VADRecorder-v${variant.versionName}.apk"
         }
     }
 

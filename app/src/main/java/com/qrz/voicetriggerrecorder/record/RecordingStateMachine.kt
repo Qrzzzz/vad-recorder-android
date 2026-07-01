@@ -70,10 +70,9 @@ class RecordingStateMachine(
         if (startConfirmFrames >= config.startConfirmFrames) {
             val now = Date()
             val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(now)
-            val dir = File(
-                context.getExternalFilesDir(Environment.DIRECTORY_MUSIC),
-                "voice-recordings"
-            )
+            val parent = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+                ?: File(context.filesDir, "music")
+            val dir = File(parent, "voice-recordings")
             dir.mkdirs()
             val fileName = "voice_${dateStr}.wav"
             currentFile = File(dir, fileName)
@@ -149,7 +148,7 @@ class RecordingStateMachine(
             }
 
             if (silenceFrames >= config.endSilenceFrames) {
-                closeWriterAndFinalize(forceSave = false)
+                closeWriterAndFinalize(forceSave = true)
                 state = InternalState.LISTENING
                 startConfirmFrames = 0
                 speechFrames = 0
