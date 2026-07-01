@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dream Talk Recorder</string>
+
+    <string name="tab_home">Home</string>
+    <string name="tab_settings">Settings</string>
+
+    <string name="dialog_delete_title">Delete this clip?</string>
+    <string name="dialog_delete_body">This will remove the file permanently. Use it to clear false triggers or clips you do not want to keep.</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_cancel">Cancel</string>
+
+    <string name="home_title">Dream Talk Recorder</string>
+    <string name="home_subtitle">The app saves clips when voice is detected. Stopping the listener saves the current clip immediately.</string>
+    <string name="tip_recorder_error_title">Recorder error</string>
+    <string name="section_last_night_title">Last night summary</string>
+    <string name="section_last_night_subtitle">See how many clips were captured, how long they were, and how late the last one happened.</string>
+    <string name="section_night_recordings_title">Night recordings</string>
+    <string name="section_night_recordings_subtitle">You can play clips right away and delete obvious false triggers.</string>
+    <string name="tip_playback_failed_title">Playback failed</string>
+    <string name="playback_failed_fallback">Playback failed. Please try again.</string>
+    <string name="empty_clips_message">No clips yet. Start listening, place the phone near the bed, and the app will save clips when it hears voice.</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">Language, auto-stop, and sensitivity all live here. Auto-stop updates the current listening session immediately.</string>
+    <string name="language_title">Language</string>
+    <string name="language_subtitle">Keep the system language, or force English or Simplified Chinese for the app.</string>
+    <string name="language_system">Follow system</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese_simplified">简体中文</string>
+    <string name="language_effect_running">The change applies immediately and refreshes the active listening notification.</string>
+    <string name="language_effect_stopped">The change applies immediately the next time this screen redraws.</string>
+    <string name="tip_microphone_permission_title">Microphone permission is missing</string>
+    <string name="tip_microphone_permission_body_settings">The recorder cannot listen without microphone permission. Open system settings and re-enable it for this app.</string>
+    <string name="tip_microphone_permission_body_request">Grant microphone permission when you tap Start listening so the recorder can actually detect voice.</string>
+    <string name="action_open_settings">Open settings</string>
+    <string name="tip_notifications_title">Notifications are off</string>
+    <string name="tip_notifications_body">The foreground service may still run, but it is harder to confirm that listening is still active. Turning notifications on makes the state easier to verify.</string>
+    <string name="action_notification_settings">Notification settings</string>
+    <string name="tip_battery_title">Battery optimization may interrupt listening</string>
+    <string name="tip_battery_body">Some phones are aggressive about background limits after the screen is off. If you expected clips overnight and got none, check battery optimization and background restrictions first.</string>
+    <string name="action_battery_settings">Battery settings</string>
+
+    <string name="auto_stop_title">Auto-stop listening</string>
+    <string name="auto_stop_body">Choose how many hours a listening session may run before the app stops it automatically.</string>
+    <string name="auto_stop_on">Auto-stop is on</string>
+    <string name="auto_stop_off">Auto-stop is off</string>
+    <string name="auto_stop_changes_immediate">Changes apply to the current listening session immediately.</string>
+    <string name="auto_stop_changes_next_session">Changes apply the next time you start listening.</string>
+    <string name="auto_stop_range">Range: 1 to 12 hours.</string>
+
+    <string name="sensitivity_title">Sensitivity preset</string>
+    <string name="sensitivity_body">Pick the room condition instead of tuning raw thresholds. The preset is locked while listening is active.</string>
+    <string name="sensitivity_quiet_bedroom_label">Quiet bedroom</string>
+    <string name="sensitivity_quiet_bedroom_description">More willing to capture soft dream talk, but also easier to trigger on subtle room noise.</string>
+    <string name="sensitivity_normal_room_label">Normal room</string>
+    <string name="sensitivity_normal_room_description">Recommended default for most bedrooms and typical sleeping environments.</string>
+    <string name="sensitivity_noisy_room_label">Noisy room</string>
+    <string name="sensitivity_noisy_room_description">More conservative so fans, AC noise, and other steady background sounds trigger less often.</string>
+
+    <string name="night_summary_empty_title">No clips to summarize yet</string>
+    <string name="night_summary_empty_body">Once the app captures real clips, this section will summarize the latest night automatically.</string>
+
+    <string name="status_finish_countdown_not_started">The 30 second finish countdown has not started yet</string>
+    <string name="status_not_listening">Not listening</string>
+    <string name="status_finish_countdown_remaining">%1$s left before this clip is saved</string>
+    <string name="status_auto_stop_disabled_session">Disabled for the current session</string>
+    <string name="status_auto_stop_disabled">Disabled</string>
+    <string name="status_auto_stop_at">Stops at %1$s</string>
+    <string name="status_listening_active">Listening is active tonight</string>
+    <string name="status_listening_off">Listening is currently off</string>
+    <string name="status_voice_detected">Voice detected right now</string>
+    <string name="status_voice_not_detected">No voice detected right now</string>
+
+    <string name="label_current_state">Current state</string>
+    <string name="label_finish_countdown">Finish countdown</string>
+    <string name="label_auto_stop">Auto-stop</string>
+    <string name="label_current_clip">Current clip</string>
+    <string name="label_saved_session">Saved in this session</string>
+    <string name="label_latest_saved_clip">Latest saved clip</string>
+    <string name="label_last_captured_at">Last captured at</string>
+    <string name="label_captured_clips">Captured clips</string>
+    <string name="label_total_duration">Total duration</string>
+    <string name="label_latest_clip_time">Latest clip time</string>
+    <string name="current_clip_none">No active clip yet</string>
+    <string name="current_clip_stop_hint">Stopping listening will save the current clip immediately. You do not have to wait for the full 30 second timeout.</string>
+
+    <string name="action_grant_and_start">Grant and start</string>
+    <string name="action_start_listening">Start listening</string>
+    <string name="action_stop_listening">Stop listening</string>
+    <string name="action_refresh_list">Refresh list</string>
+    <string name="primary_action_running_body">Listening is running now. Tapping Stop will close and save the current clip right away.</string>
+    <string name="primary_action_stopped_body">When listening starts, the app keeps detecting voice in a foreground service and saves clips automatically.</string>
+
+    <string name="recording_group_summary">%1$s · %2$s · %3$s</string>
+    <string name="recording_clip_at">Clip at %1$s</string>
+    <string name="night_of">Night of %1$s</string>
+
+    <string name="action_stop_playback">Stop playback</string>
+    <string name="action_play">Play</string>
+
+    <string name="duration_unknown">unknown duration</string>
+    <string name="duration_minutes_seconds">%1$dm %2$ds</string>
+    <string name="date_pattern_month_day">M/d</string>
+    <string name="date_pattern_date_time">M/d HH:mm</string>
+    <string name="date_pattern_clock_time">HH:mm</string>
+
+    <string name="notification_channel_name">Voice listener</string>
+    <string name="notification_channel_description">Foreground service for dream talk voice listening</string>
+    <string name="notification_title">Dream Talk Recorder is running</string>
+    <string name="notification_text">Listening to the microphone and saving clips when voice is detected</string>
+    <string name="notification_action_stop">Stop</string>
+
+    <string name="recorder_state_idle">Idle</string>
+    <string name="recorder_state_listening">Listening for voice</string>
+    <string name="recorder_state_recording">Recording</string>
+    <string name="recorder_state_waiting_to_finish">Waiting 30s to finish</string>
+    <string name="recorder_state_saved">Saved: %1$s</string>
+    <string name="recorder_state_microphone_setup_failed">Microphone setup failed</string>
+    <string name="recorder_state_recorder_failed">Recorder failed</string>
+
+    <string name="error_audio_reads_failed">Audio reads failed repeatedly.</string>
+    <string name="error_microphone_init_failed">Could not initialize the microphone. Check permission or close any other app that is using it.</string>
+
+    <plurals name="clip_count">
+        <item quantity="one">%d clip</item>
+        <item quantity="other">%d clips</item>
+    </plurals>
+
+    <plurals name="auto_stop_after_hours">
+        <item quantity="one">Stop after %d hour</item>
+        <item quantity="other">Stop after %d hours</item>
+    </plurals>
+
+    <plurals name="status_auto_stop_next_session">
+        <item quantity="one">Next session stops after %d hour</item>
+        <item quantity="other">Next session stops after %d hours</item>
+    </plurals>
+
+    <plurals name="duration_seconds">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
+</resources>
