@@ -80,24 +80,46 @@ class RecordingStateMachineTest {
     }
 
     @Test
-    fun errorFinalizesValidActiveAudio() {
+    fun serviceStopDoesNotSaveShortNoise() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 800)
 
         repeat(2) { machine.onFrame(frame(), speech = true) }
-        machine.closeCurrentFileIfNeeded(RecordingCloseReason.Error)
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ServiceStop)
 
-        assertEquals(1, wavFiles().size)
-        assertEquals("Error", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+        assertEquals(emptyList<File>(), wavFiles())
+        assertEquals(emptyList<File>(), partFiles())
     }
 
     @Test
-    fun processDeathRemovesActivePartialFile() {
+    fun readErrorFinalizesValidActiveAudio() {
+        val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
+
+        repeat(6) { machine.onFrame(frame(), speech = true) }
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ReadError)
+
+        assertEquals(1, wavFiles().size)
+        assertEquals("ReadError", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+    }
+
+    @Test
+    fun readErrorDoesNotSaveShortNoise() {
+        val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 800)
+
+        repeat(2) { machine.onFrame(frame(), speech = true) }
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ReadError)
+
+        assertEquals(emptyList<File>(), wavFiles())
+        assertEquals(emptyList<File>(), partFiles())
+    }
+
+    @Test
+    fun destroyRemovesActivePartialFile() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
         repeat(2) { machine.onFrame(frame(), speech = true) }
         assertTrue(partFiles().isNotEmpty())
 
-        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ProcessDeath)
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.Destroy)
 
         assertEquals(emptyList<File>(), wavFiles())
         assertEquals(emptyList<File>(), partFiles())

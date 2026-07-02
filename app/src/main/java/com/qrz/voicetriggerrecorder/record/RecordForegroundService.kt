@@ -36,6 +36,7 @@ class RecordForegroundService : Service() {
         const val NOTIFICATION_CHANNEL_ID = "voice_recording"
         const val NOTIFICATION_ID = 1001
 
+        // Process-local UI bridge only. Real session state lives on the service instance.
         private val _uiState = MutableStateFlow(RecorderUiState())
         val uiState: StateFlow<RecorderUiState> = _uiState.asStateFlow()
 
@@ -57,6 +58,8 @@ class RecordForegroundService : Service() {
     private var listeningStartedAtMs: Long? = null
     private var foregroundShown = false
     private var preserveUiStateOnDestroy = false
+    @Volatile
+    private var destroyInProgress = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
@@ -89,7 +92,7 @@ class RecordForegroundService : Service() {
         val sensitivityPreset = preferences.loadSensitivityPreset()
         RecordingStateMachine.cleanupStalePartialFiles(applicationContext)
         val captureEngine = AudioCaptureEngine(applicationContext, sensitivityPreset) { mutation ->
-            applyUiMutationAndRefreshNotification(mutation)
+            applySessionUiMutation(mutation)
         }
 
         try {
@@ -105,6 +108,7 @@ class RecordForegroundService : Service() {
         listeningStartedAtMs = System.currentTimeMillis()
         engine = captureEngine
         preserveUiStateOnDestroy = false
+        destroyInProgress = false
 
         applyUiMutationAndRefreshNotification {
             RecorderUiState(
@@ -119,7 +123,7 @@ class RecordForegroundService : Service() {
             try {
                 closeReason = captureEngine.start()
             } catch (e: Exception) {
-                closeReason = RecordingCloseReason.Error
+                closeReason = RecordingCloseReason.Destroy
                 Log.e(TAG, "Audio capture engine failed", e)
                 handleStartupFailure(e, RecorderPhase.MICROPHONE_SETUP_FAILED)
                 return@launch
@@ -131,10 +135,15 @@ class RecordForegroundService : Service() {
                 Log.i(TAG, "Engine loop exited reason=$closeReason")
             }
 
-            if (closeReason == RecordingCloseReason.Error) {
+            if (closeReason == RecordingCloseReason.ReadError) {
                 finishStoppedService(preserveFailureState = true)
             }
         }
+    }
+
+    private fun applySessionUiMutation(mutation: RecorderUiStateMutation) {
+        if (destroyInProgress) return
+        applyUiMutationAndRefreshNotification(mutation)
     }
 
     private fun applyUiMutationAndRefreshNotification(mutation: RecorderUiStateMutation) {
@@ -215,7 +224,8 @@ class RecordForegroundService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "Service destroying")
-        engine?.close(RecordingCloseReason.ProcessDeath)
+        destroyInProgress = true
+        engine?.close(RecordingCloseReason.Destroy)
         finishStoppedService(
             preserveFailureState = preserveUiStateOnDestroy,
             requestStopSelf = false
@@ -285,7 +295,7 @@ class RecordForegroundService : Service() {
     private fun handleStartupFailure(error: Exception, phase: RecorderPhase) {
         autoStopJob?.cancel()
         autoStopJob = null
-        engine?.close(RecordingCloseReason.Error)
+        engine?.close(RecordingCloseReason.Destroy)
         engine = null
         engineJob = null
         listeningStartedAtMs = null

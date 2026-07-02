@@ -100,7 +100,7 @@ class AudioCaptureEngine(
                     consecutiveErrors++
                     Log.e(TAG, "AudioRecord read error: $read (consecutive: $consecutiveErrors)")
                     if (consecutiveErrors >= 5) {
-                        requestedCloseReason = RecordingCloseReason.Error
+                        requestedCloseReason = RecordingCloseReason.ReadError
                         running = false
                         applyUiMutation { current ->
                             current.copy(

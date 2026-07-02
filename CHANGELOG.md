@@ -5,7 +5,7 @@
 ### Stability and recorder internals
 
 - Rebased the 2.0 stability work on top of the 1.2 recorder fixes, keeping the 30-second silence finalization behavior.
-- Split recording close reasons into `EndSilence`, `ManualStop`, `ServiceStop`, `Error`, and `ProcessDeath`.
+- Split recording close reasons into `EndSilence`, `ManualStop`, `ServiceStop`, `ReadError`, and `Destroy`.
 - Writes active recordings to `.wav.part` first, finalizes the WAV header, then moves the file into place as `.wav`.
 - Cleans stale `.wav.part` files on listener startup.
 - Added a pluggable `VadEngine` interface with the existing rule-based detector as the fallback implementation.

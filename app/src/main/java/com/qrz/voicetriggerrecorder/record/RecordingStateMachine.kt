@@ -215,8 +215,8 @@ class RecordingStateMachine(
             )
             applyUiMutation { current ->
                 current.copy(
-                    serviceRunning = reason != RecordingCloseReason.Error,
-                    recorderPhase = if (reason == RecordingCloseReason.Error) {
+                    serviceRunning = reason != RecordingCloseReason.ReadError,
+                    recorderPhase = if (reason == RecordingCloseReason.ReadError) {
                         RecorderPhase.RECORDER_FAILED
                     } else {
                         RecorderPhase.SAVED
@@ -224,11 +224,11 @@ class RecordingStateMachine(
                     currentFileName = null,
                     lastSavedFileName = fileName,
                     savedCount = current.savedCount + 1,
-                    errorMessage = if (reason == RecordingCloseReason.Error) current.errorMessage else null,
+                    errorMessage = if (reason == RecordingCloseReason.ReadError) current.errorMessage else null,
                     countdownRemainingMs = null
                 )
             }
-        } else if (reason == RecordingCloseReason.Error || reason == RecordingCloseReason.ProcessDeath) {
+        } else if (reason == RecordingCloseReason.ReadError || reason == RecordingCloseReason.Destroy) {
             Log.i(
                 TAG,
                 "aborted active recording reason=$reason file=$fileName durationMs=$speechDurationMs"
@@ -236,7 +236,7 @@ class RecordingStateMachine(
             applyUiMutation { current ->
                 current.copy(
                     serviceRunning = false,
-                    recorderPhase = if (reason == RecordingCloseReason.Error) {
+                    recorderPhase = if (reason == RecordingCloseReason.ReadError) {
                         RecorderPhase.RECORDER_FAILED
                     } else {
                         current.recorderPhase
@@ -273,13 +273,13 @@ class RecordingStateMachine(
         if (audioBytes <= 0L) return false
 
         return when (reason) {
-            RecordingCloseReason.EndSilence -> {
+            RecordingCloseReason.EndSilence,
+            RecordingCloseReason.ServiceStop,
+            RecordingCloseReason.ReadError -> {
                 speechDurationMs >= config.minSpeechMs && speechFrameCount >= config.minSpeechFrames
             }
             RecordingCloseReason.ManualStop -> true
-            RecordingCloseReason.ServiceStop,
-            RecordingCloseReason.Error -> speechFrameCount > 0
-            RecordingCloseReason.ProcessDeath -> false
+            RecordingCloseReason.Destroy -> false
         }
     }
 }
