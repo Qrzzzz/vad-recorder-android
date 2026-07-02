@@ -7,6 +7,7 @@ data class RecordingFile(
     val lastModified: Long,
     val durationMs: Long?,
     val id: String = name.substringBeforeLast('.'),
+    val sessionId: String = id,
     val fileName: String = name,
     val createdAt: Long = lastModified,
     val endedAt: Long? = lastModified,
@@ -14,6 +15,8 @@ data class RecordingFile(
     val speechDurationMs: Long? = null,
     val closeReason: String? = null,
     val vadEngineName: String? = null,
+    val vadConfidence: Float? = null,
     val isCorrupted: Boolean = false,
-    val isFinalized: Boolean = false
+    val isFinalized: Boolean = false,
+    val isExported: Boolean = false
 )

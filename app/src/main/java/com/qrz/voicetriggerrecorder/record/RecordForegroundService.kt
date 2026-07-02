@@ -10,13 +10,21 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.qrz.voicetriggerrecorder.R
 import com.qrz.voicetriggerrecorder.MainActivity
+import com.qrz.voicetriggerrecorder.R
 import com.qrz.voicetriggerrecorder.ui.RecorderPhase
 import com.qrz.voicetriggerrecorder.ui.RecorderUiState
 import com.qrz.voicetriggerrecorder.ui.RecorderUiStateMutation
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class RecordForegroundService : Service() {
     companion object {
@@ -81,7 +89,7 @@ class RecordForegroundService : Service() {
         val sensitivityPreset = preferences.loadSensitivityPreset()
         RecordingStateMachine.cleanupStalePartialFiles(applicationContext)
         val captureEngine = AudioCaptureEngine(applicationContext, sensitivityPreset) { mutation ->
-            applyUiMutation(mutation)
+            applyUiMutationAndRefreshNotification(mutation)
         }
 
         try {
@@ -96,19 +104,22 @@ class RecordForegroundService : Service() {
 
         listeningStartedAtMs = System.currentTimeMillis()
         engine = captureEngine
+        preserveUiStateOnDestroy = false
 
-        applyUiMutation {
+        applyUiMutationAndRefreshNotification {
             RecorderUiState(
                 serviceRunning = true,
                 recorderPhase = RecorderPhase.LISTENING
             )
         }
+        refreshSessionSettingsIfRunning()
 
         engineJob = scope.launch {
             var closeReason = RecordingCloseReason.ServiceStop
             try {
                 closeReason = captureEngine.start()
             } catch (e: Exception) {
+                closeReason = RecordingCloseReason.Error
                 Log.e(TAG, "Audio capture engine failed", e)
                 handleStartupFailure(e, RecorderPhase.MICROPHONE_SETUP_FAILED)
                 return@launch
@@ -120,12 +131,26 @@ class RecordForegroundService : Service() {
                 Log.i(TAG, "Engine loop exited reason=$closeReason")
             }
 
-            if (closeReason == RecordingCloseReason.ReadError) {
+            if (closeReason == RecordingCloseReason.Error) {
                 finishStoppedService(preserveFailureState = true)
             }
         }
+    }
 
-        refreshSessionSettingsIfRunning()
+    private fun applyUiMutationAndRefreshNotification(mutation: RecorderUiStateMutation) {
+        val before = uiState.value
+        applyUiMutation(mutation)
+        val after = uiState.value
+        if (
+            before.recorderPhase != after.recorderPhase ||
+            before.currentFileName != after.currentFileName ||
+            before.errorMessage != after.errorMessage
+        ) {
+            scope.launch(Dispatchers.Main.immediate) {
+                createNotificationChannel()
+                startAsForeground()
+            }
+        }
     }
 
     private fun closeAndStop(reason: RecordingCloseReason) {
@@ -190,7 +215,7 @@ class RecordForegroundService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "Service destroying")
-        engine?.close(RecordingCloseReason.Destroy)
+        engine?.close(RecordingCloseReason.ProcessDeath)
         finishStoppedService(
             preserveFailureState = preserveUiStateOnDestroy,
             requestStopSelf = false
@@ -224,12 +249,9 @@ class RecordForegroundService : Service() {
         autoStopJob?.cancel()
         autoStopJob = null
 
-        applyUiMutation { current ->
+        applyUiMutationAndRefreshNotification { current ->
             current.copy(autoStopAtMs = autoStopAtMs)
         }
-
-        createNotificationChannel()
-        startAsForeground()
 
         if (autoStopAtMs == null) {
             return
@@ -263,7 +285,7 @@ class RecordForegroundService : Service() {
     private fun handleStartupFailure(error: Exception, phase: RecorderPhase) {
         autoStopJob?.cancel()
         autoStopJob = null
-        engine?.close(RecordingCloseReason.ServiceStop)
+        engine?.close(RecordingCloseReason.Error)
         engine = null
         engineJob = null
         listeningStartedAtMs = null
@@ -324,9 +346,27 @@ class RecordForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val currentState = uiState.value
+        val notificationTitle = when (currentState.recorderPhase) {
+            RecorderPhase.RECORDING -> getString(R.string.notification_title_recording)
+            RecorderPhase.WAITING_TO_FINISH -> getString(R.string.notification_title_finishing)
+            RecorderPhase.MICROPHONE_SETUP_FAILED,
+            RecorderPhase.RECORDER_FAILED -> getString(R.string.notification_title_error)
+            else -> getString(R.string.notification_title_listening)
+        }
+        val notificationText = when (currentState.recorderPhase) {
+            RecorderPhase.RECORDING -> getString(R.string.notification_text_recording)
+            RecorderPhase.WAITING_TO_FINISH -> getString(R.string.notification_text_finishing)
+            RecorderPhase.MICROPHONE_SETUP_FAILED,
+            RecorderPhase.RECORDER_FAILED -> currentState.errorMessage
+                ?: getString(R.string.notification_text_error)
+            else -> getString(R.string.notification_text_listening)
+        }
+
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
+            .setContentTitle(notificationTitle)
+            .setContentText(notificationText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notificationText))
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setContentIntent(contentIntent)

@@ -36,6 +36,7 @@ object RecordingMetadataStore {
         val inferred = inferFromWav(wavFile)
         val metadata = RecordingMetadata(
             id = wavFile.name.substringBeforeLast('.'),
+            sessionId = wavFile.name.substringBeforeLast('.'),
             fileName = wavFile.name,
             path = wavFile.absolutePath,
             createdAt = createdAt,
@@ -46,8 +47,10 @@ object RecordingMetadataStore {
             speechDurationMs = speechDurationMs,
             closeReason = closeReason.name,
             vadEngineName = vadEngineName,
+            vadConfidence = null,
             isCorrupted = inferred.isCorrupted,
-            isFinalized = inferred.isFinalized
+            isFinalized = inferred.isFinalized,
+            isExported = false
         )
         write(metadataFileFor(wavFile), metadata)
     }
@@ -90,6 +93,7 @@ object RecordingMetadataStore {
 
         return RecordingMetadata(
             id = wavFile.name.substringBeforeLast('.'),
+            sessionId = wavFile.name.substringBeforeLast('.'),
             fileName = wavFile.name,
             path = wavFile.absolutePath,
             createdAt = createdAt,
@@ -100,8 +104,10 @@ object RecordingMetadataStore {
             speechDurationMs = null,
             closeReason = null,
             vadEngineName = null,
+            vadConfidence = null,
             isCorrupted = wavInfo.isCorrupted,
-            isFinalized = wavInfo.isFinalized
+            isFinalized = wavInfo.isFinalized,
+            isExported = false
         )
     }
 
@@ -120,6 +126,7 @@ object RecordingMetadataStore {
     private fun RecordingMetadata.mergeWith(inferred: RecordingMetadata): RecordingMetadata {
         return copy(
             id = id.ifBlank { inferred.id },
+            sessionId = sessionId.ifBlank { inferred.sessionId },
             fileName = inferred.fileName,
             path = inferred.path,
             createdAt = createdAt.takeIf { it > 0L } ?: inferred.createdAt,
@@ -135,6 +142,10 @@ object RecordingMetadataStore {
     private fun JSONObject.toRecordingMetadata(): RecordingMetadata {
         return RecordingMetadata(
             id = optNullableString("id") ?: optNullableString("fileName")?.substringBeforeLast('.') ?: "",
+            sessionId = optNullableString("sessionId")
+                ?: optNullableString("id")
+                ?: optNullableString("fileName")?.substringBeforeLast('.')
+                ?: "",
             fileName = optNullableString("fileName") ?: "",
             path = optNullableString("path") ?: "",
             createdAt = optLong("createdAt", 0L),
@@ -145,14 +156,17 @@ object RecordingMetadataStore {
             speechDurationMs = optNullableLong("speechDurationMs"),
             closeReason = optNullableString("closeReason"),
             vadEngineName = optNullableString("vadEngineName"),
+            vadConfidence = optNullableFloat("vadConfidence"),
             isCorrupted = optBoolean("isCorrupted", false),
-            isFinalized = optBoolean("isFinalized", false)
+            isFinalized = optBoolean("isFinalized", false),
+            isExported = optBoolean("isExported", false)
         )
     }
 
     private fun RecordingMetadata.toJson(): JSONObject {
         return JSONObject()
             .put("id", id)
+            .put("sessionId", sessionId)
             .put("fileName", fileName)
             .put("path", path)
             .put("createdAt", createdAt)
@@ -163,8 +177,10 @@ object RecordingMetadataStore {
             .putNullable("speechDurationMs", speechDurationMs)
             .putNullable("closeReason", closeReason)
             .putNullable("vadEngineName", vadEngineName)
+            .putNullable("vadConfidence", vadConfidence)
             .put("isCorrupted", isCorrupted)
             .put("isFinalized", isFinalized)
+            .put("isExported", isExported)
     }
 
     private fun JSONObject.putNullable(name: String, value: Any?): JSONObject {
@@ -182,6 +198,10 @@ object RecordingMetadataStore {
 
     private fun JSONObject.optNullableInt(name: String): Int? {
         return if (has(name) && !isNull(name)) optInt(name) else null
+    }
+
+    private fun JSONObject.optNullableFloat(name: String): Float? {
+        return if (has(name) && !isNull(name)) optDouble(name).toFloat() else null
     }
 }
 

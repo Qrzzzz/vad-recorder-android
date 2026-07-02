@@ -7,10 +7,11 @@ import java.io.File
 class RecordingRepository(private val context: Context) {
 
     private val recordingsDir: File
-        get() = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_MUSIC),
-            "voice-recordings"
-        )
+        get() {
+            val parent = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+                ?: File(context.filesDir, "music")
+            return File(parent, "voice-recordings")
+        }
 
     fun listRecordings(): List<RecordingFile> {
         val dir = recordingsDir
@@ -27,6 +28,7 @@ class RecordingRepository(private val context: Context) {
                     lastModified = file.lastModified(),
                     durationMs = metadata.durationMs,
                     id = metadata.id,
+                    sessionId = metadata.sessionId,
                     fileName = metadata.fileName,
                     createdAt = metadata.createdAt,
                     endedAt = metadata.endedAt,
@@ -34,8 +36,10 @@ class RecordingRepository(private val context: Context) {
                     speechDurationMs = metadata.speechDurationMs,
                     closeReason = metadata.closeReason,
                     vadEngineName = metadata.vadEngineName,
+                    vadConfidence = metadata.vadConfidence,
                     isCorrupted = metadata.isCorrupted,
-                    isFinalized = metadata.isFinalized
+                    isFinalized = metadata.isFinalized,
+                    isExported = metadata.isExported
                 )
             }
             ?.sortedByDescending { it.lastModified }

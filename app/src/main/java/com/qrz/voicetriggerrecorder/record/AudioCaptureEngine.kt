@@ -70,7 +70,7 @@ class AudioCaptureEngine(
                 if (read > 0) {
                     consecutiveErrors = 0
                     val frame = buffer.copyOf(read)
-                    val vadResult = vad.analyze(frame, read)
+                    val vadResult = vad.isSpeech(frame, config.sampleRate)
                     val speech = vadResult.isSpeech
                     stateMachine.onFrame(frame, speech)
                     val countdownMs = stateMachine.countdownRemainingMs
@@ -100,7 +100,7 @@ class AudioCaptureEngine(
                     consecutiveErrors++
                     Log.e(TAG, "AudioRecord read error: $read (consecutive: $consecutiveErrors)")
                     if (consecutiveErrors >= 5) {
-                        requestedCloseReason = RecordingCloseReason.ReadError
+                        requestedCloseReason = RecordingCloseReason.Error
                         running = false
                         applyUiMutation { current ->
                             current.copy(

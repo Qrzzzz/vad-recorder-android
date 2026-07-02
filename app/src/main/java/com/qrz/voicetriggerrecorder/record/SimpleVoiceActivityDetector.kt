@@ -1,7 +1,7 @@
 package com.qrz.voicetriggerrecorder.record
 
 class SimpleVoiceActivityDetector(
-    sampleRate: Int,
+    private val sampleRate: Int,
     sensitivity: Float = 0.55f
 ) {
     private val engine = VadEngineFactory.ruleBased(
@@ -10,7 +10,7 @@ class SimpleVoiceActivityDetector(
     )
 
     fun isSpeech(samples: ShortArray, length: Int): Boolean {
-        return engine.analyze(samples, length).isSpeech
+        return engine.isSpeech(samples.copyOf(length.coerceIn(0, samples.size)), sampleRate).isSpeech
     }
 
     fun reset() {

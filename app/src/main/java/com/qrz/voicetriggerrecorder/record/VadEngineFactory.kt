@@ -3,14 +3,14 @@ package com.qrz.voicetriggerrecorder.record
 object VadEngineFactory {
     fun create(sampleRate: Int, sensitivityPreset: SensitivityPreset): VadEngine {
         return RuleBasedVadEngine(
-            sampleRate = sampleRate,
+            configuredSampleRate = sampleRate,
             parameters = parametersFor(sensitivityPreset)
         )
     }
 
     fun ruleBased(sampleRate: Int, sensitivity: Float): VadEngine {
         return RuleBasedVadEngine(
-            sampleRate = sampleRate,
+            configuredSampleRate = sampleRate,
             parameters = parametersForSensitivity(sensitivity)
         )
     }

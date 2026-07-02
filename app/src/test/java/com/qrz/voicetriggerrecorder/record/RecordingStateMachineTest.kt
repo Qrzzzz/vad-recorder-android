@@ -80,24 +80,24 @@ class RecordingStateMachineTest {
     }
 
     @Test
-    fun readErrorFinalizesValidActiveAudio() {
+    fun errorFinalizesValidActiveAudio() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 800)
 
         repeat(2) { machine.onFrame(frame(), speech = true) }
-        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ReadError)
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.Error)
 
         assertEquals(1, wavFiles().size)
-        assertEquals("ReadError", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+        assertEquals("Error", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
     }
 
     @Test
-    fun destroyRemovesActivePartialFile() {
+    fun processDeathRemovesActivePartialFile() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
         repeat(2) { machine.onFrame(frame(), speech = true) }
         assertTrue(partFiles().isNotEmpty())
 
-        machine.closeCurrentFileIfNeeded(RecordingCloseReason.Destroy)
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ProcessDeath)
 
         assertEquals(emptyList<File>(), wavFiles())
         assertEquals(emptyList<File>(), partFiles())

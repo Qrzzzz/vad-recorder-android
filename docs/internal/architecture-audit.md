@@ -54,7 +54,7 @@ Important details:
 - `startServiceSafely()` cleans stale `.wav.part` files, starts foreground mode, publishes a fresh `RecorderUiState(serviceRunning = true, recorderPhase = LISTENING)`, constructs the engine, then calls `refreshSessionSettingsIfRunning()`.
 - The engine runs in `scope.launch { engine?.start() }` on a `SupervisorJob() + Dispatchers.Default` service scope.
 - `ACTION_STOP` is asynchronous. It launches a coroutine, cancels auto-stop, calls `engine?.close(ManualStop)`, joins `engineJob`, resets the state flow to `RecorderUiState()`, removes foreground mode, and calls `stopSelf()`.
-- `onDestroy()` calls `engine?.close(Destroy)`, runs the same foreground/UI cleanup path, cancels the service scope, and then calls `super.onDestroy()`.
+- `onDestroy()` calls `engine?.close(ProcessDeath)`, runs the same foreground/UI cleanup path, cancels the service scope, and then calls `super.onDestroy()`.
 
 ### 3. AudioCaptureEngine
 
@@ -72,7 +72,7 @@ Responsibilities observed:
 - Runs the configured `VadEngine` on each frame.
 - Feeds each frame and speech decision into `RecordingStateMachine`.
 - Emits `speechDetected` and `countdownRemainingMs` UI mutations when those values change.
-- On repeated audio-read failures, finalizes any valid active clip with `ReadError`, emits `RECORDER_FAILED`, and exits the read loop.
+- On repeated audio-read failures, finalizes any valid active clip with `Error`, emits `RECORDER_FAILED`, and exits the read loop.
 - On normal exit, closes any open state-machine file using the requested close reason and clears speech/countdown UI fields.
 
 Important details:
@@ -122,7 +122,7 @@ Important details:
 
 - The start threshold is `RecorderConfig.startConfirmMs` converted to 20 ms frames.
 - The end threshold is `RecorderConfig.endSilenceMs`, currently 30 seconds.
-- `RecordingCloseReason.ManualStop`, `ServiceStop`, and `ReadError` save an in-progress clip when there is written audio; `Destroy` discards it; `EndSilence` saves only when speech duration meets the configured minimum.
+- `RecordingCloseReason.ManualStop`, `ServiceStop`, and `Error` save an in-progress clip when there is written audio; `ProcessDeath` discards it; `EndSilence` saves only when speech duration meets the configured minimum.
 - Normal hangover completion only saves if the computed speech duration meets `minSpeechMs`.
 
 ### 6. WavFileWriter
@@ -194,7 +194,7 @@ Current write path:
 ```text
 AudioRecord.read(...)
   -> ShortArray frame
-  -> VadEngine.analyze(...).speech
+  -> VadEngine.isSpeech(...).isSpeech
   -> RecordingStateMachine.onFrame(frame, speech)
   -> RingBuffer pre-roll while LISTENING
   -> WavFileWriter(file, sampleRate) after start confirmation, writing to .wav.part
@@ -291,12 +291,12 @@ Risk:
 
 ### Audio read failure stops the foreground service after finalization
 
-After repeated read failures, `AudioCaptureEngine` asks the state machine to close with `ReadError` and returns that close reason. The service then calls `finishStoppedService(preserveFailureState = true)`.
+After repeated read failures, `AudioCaptureEngine` asks the state machine to close with `Error` and returns that close reason. The service then calls `finishStoppedService(preserveFailureState = true)`.
 
 Risk:
 
 - The final UI state intentionally preserves the failure phase while clearing `serviceRunning`.
-- Tests should keep covering that valid active audio is finalized on `ReadError` and that partial files are removed.
+- Tests should keep covering that valid active audio is finalized on `Error` and that partial files are removed.
 
 ### Stop is asynchronous and state reset happens after engine join
 

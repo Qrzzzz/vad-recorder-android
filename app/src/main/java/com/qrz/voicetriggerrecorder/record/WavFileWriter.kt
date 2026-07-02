@@ -16,6 +16,7 @@ class WavFileWriter(
     private var raf: RandomAccessFile? = null
     private var dataBytes: Long = 0
     private var closed = false
+    private var writeFailed = false
 
     init {
         val parent = finalFile.parentFile
@@ -30,18 +31,27 @@ class WavFileWriter(
     }
 
     fun writeSamples(samples: ShortArray, length: Int) {
-        if (closed || length <= 0) return
+        if (closed || writeFailed || length <= 0) return
         val raf = this.raf ?: return
-        for (i in 0 until length) {
-            val v = samples[i].toInt()
-            raf.write(v and 0xff)
-            raf.write((v shr 8) and 0xff)
+        val safeLength = length.coerceAtMost(samples.size)
+        try {
+            for (i in 0 until safeLength) {
+                val v = samples[i].toInt()
+                raf.write(v and 0xff)
+                raf.write((v shr 8) and 0xff)
+            }
+            dataBytes += (safeLength * 2).toLong()
+        } catch (_: Exception) {
+            writeFailed = true
         }
-        dataBytes += (length * 2).toLong()
     }
 
     fun closeAndCommit(): Boolean {
         if (closed) return finalFile.exists()
+        if (writeFailed) {
+            abort()
+            return false
+        }
         if (dataBytes <= 0L) {
             abort()
             return false

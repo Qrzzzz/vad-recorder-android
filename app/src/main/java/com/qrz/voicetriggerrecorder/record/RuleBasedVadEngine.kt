@@ -6,11 +6,11 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 class RuleBasedVadEngine(
-    override val sampleRate: Int,
+    private val configuredSampleRate: Int,
     private val parameters: Parameters = Parameters()
 ) : VadEngine {
     init {
-        require(sampleRate > 0) { "sampleRate must be positive" }
+        require(configuredSampleRate > 0) { "sampleRate must be positive" }
     }
 
     data class Parameters(
@@ -33,7 +33,12 @@ class RuleBasedVadEngine(
     private var calibratedMs = 0L
     private val recent = ArrayDeque<Boolean>()
 
-    override fun analyze(samples: ShortArray, length: Int): VadResult {
+    override fun isSpeech(frame: ShortArray, sampleRate: Int): VadResult {
+        val activeSampleRate = sampleRate.takeIf { it > 0 } ?: configuredSampleRate
+        return analyze(frame, frame.size, activeSampleRate)
+    }
+
+    private fun analyze(samples: ShortArray, length: Int, sampleRate: Int): VadResult {
         val safeLength = min(length, samples.size)
         if (safeLength <= 0) {
             return VadResult(
@@ -62,7 +67,7 @@ class RuleBasedVadEngine(
         val calibrating = isCalibrating()
 
         if (calibrating) {
-            calibratedMs += frameDurationMs(safeLength)
+            calibratedMs += frameDurationMs(safeLength, sampleRate)
             if (!strongSpeech) {
                 adaptNoiseFloor(db, parameters.calibrationNoiseAlpha)
             }
@@ -111,7 +116,7 @@ class RuleBasedVadEngine(
         noiseFloorDb = noiseFloorDb * (1.0 - alpha) + db * alpha
     }
 
-    private fun frameDurationMs(length: Int): Long {
+    private fun frameDurationMs(length: Int, sampleRate: Int): Long {
         return (length * 1000L / sampleRate).coerceAtLeast(1L)
     }
 

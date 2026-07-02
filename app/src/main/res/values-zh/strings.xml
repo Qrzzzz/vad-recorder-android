@@ -6,46 +6,65 @@
     <string name="tab_settings">设置</string>
 
     <string name="dialog_delete_title">删除这段录音？</string>
-    <string name="dialog_delete_body">删除后文件无法恢复。可用来清理误触发或不想保留的片段。</string>
+    <string name="dialog_delete_body">删除后文件无法恢复。可用于清理误触发或不想保留的片段。</string>
     <string name="action_delete">删除</string>
     <string name="action_cancel">取消</string>
 
     <string name="home_title">记录梦话</string>
-    <string name="home_subtitle">检测到人声时会自动保存片段。手动停止监听也会立刻保存当前片段。</string>
+    <string name="home_subtitle">检测到人声时会自动保存片段。手动停止监听也会立即保存当前片段。</string>
     <string name="tip_recorder_error_title">录音器错误</string>
+    <string name="tip_storage_error_title">无法加载已保存录音</string>
     <string name="section_last_night_title">昨夜摘要</string>
-    <string name="section_last_night_subtitle">查看昨晚抓到了多少片段、总时长，以及最后一段出现的时间。</string>
+    <string name="section_last_night_subtitle">查看昨晚捕获了多少片段、总时长，以及最后一条出现的时间。</string>
     <string name="section_night_recordings_title">夜间录音</string>
     <string name="section_night_recordings_subtitle">可以直接播放，也可以删除明显的误触发片段。</string>
     <string name="tip_playback_failed_title">播放失败</string>
     <string name="playback_failed_fallback">播放失败，请重试。</string>
     <string name="empty_clips_message">暂时还没有录音。开始监听后，把手机放在床边，检测到人声时应用会自动保存片段。</string>
+    <string name="recording_attention_title">正在录音</string>
+    <string name="recording_attention_body">已经检测到人声，当前片段正在保存中。请保持手机位置不变；如果现在点“停止监听”，也会立刻保存这一段。</string>
+    <string name="recording_wrap_up_title">录音收尾中</string>
+    <string name="recording_wrap_up_body">当前没有检测到人声。如果没有新的人声出现，这段录音会在 %1$s 后自动保存。</string>
+    <string name="recording_attention_file">当前片段：%1$s</string>
 
     <string name="settings_title">设置</string>
-    <string name="settings_subtitle">语言、自动停止和灵敏度都在这里。自动停止会立刻作用到当前监听会话。</string>
+    <string name="settings_subtitle">语言、自动停止和灵敏度都在这里。自动停止会立即作用到当前监听会话。</string>
+    <string name="readiness_title">今夜准备检查</string>
+    <string name="readiness_ready_body">麦克风权限、通知可见性和电池设置都已经适合过夜监听。</string>
+    <string name="readiness_attention_body">在把手机放着整夜监听前，还有几项需要先处理。</string>
+    <string name="readiness_action">去检查设置</string>
+    <string name="readiness_microphone_label">麦克风权限</string>
+    <string name="readiness_microphone_ready">已就绪</string>
+    <string name="readiness_microphone_missing">开始监听前必须授予</string>
+    <string name="readiness_notifications_label">常驻通知</string>
+    <string name="readiness_notifications_ready">监听时会持续显示</string>
+    <string name="readiness_notifications_missing">建议开启，便于确认仍在监听</string>
+    <string name="readiness_battery_label">电池限制</string>
+    <string name="readiness_battery_ready">后台监听更不容易被打断</string>
+    <string name="readiness_battery_missing">熄屏后可能中断长时间监听</string>
     <string name="language_title">语言</string>
     <string name="language_subtitle">默认跟随系统，也可以强制让应用使用 English 或简体中文。</string>
     <string name="language_system">跟随系统</string>
     <string name="language_english">English</string>
     <string name="language_chinese_simplified">简体中文</string>
     <string name="language_effect_running">切换会立即生效，并刷新当前监听通知。</string>
-    <string name="language_effect_stopped">切换会立即生效。</string>
+    <string name="language_effect_stopped">切换会在当前界面重新绘制时立即生效。</string>
     <string name="tip_microphone_permission_title">缺少麦克风权限</string>
-    <string name="tip_microphone_permission_body_settings">没有麦克风权限就无法监听。请打开系统设置，为这个应用重新开启权限。</string>
-    <string name="tip_microphone_permission_body_request">点“开始监听”时请授予麦克风权限，否则应用无法检测人声。</string>
+    <string name="tip_microphone_permission_body_settings">没有麦克风权限就无法监听。请打开系统设置，重新为此应用启用权限。</string>
+    <string name="tip_microphone_permission_body_request">点击“开始监听”时请授予麦克风权限，否则应用无法检测人声。</string>
     <string name="action_open_settings">打开设置</string>
     <string name="tip_notifications_title">通知已关闭</string>
-    <string name="tip_notifications_body">前台服务可能仍在运行，但你会更难确认监听是否还在继续。打开通知后，状态会更容易核对。</string>
+    <string name="tip_notifications_body">前台服务可能仍在运行，但你会更难确认监听是否还在继续。开启通知后，状态会更容易核对。</string>
     <string name="action_notification_settings">通知设置</string>
     <string name="tip_battery_title">电池优化可能打断监听</string>
-    <string name="tip_battery_body">有些手机在灭屏后会更激进地限制后台。如果你本来期待夜里有录音却一条都没有，先检查电池优化和后台限制。</string>
+    <string name="tip_battery_body">有些手机在熄屏后会更激进地限制后台。如果你本来期待夜里有录音却一条都没有，先检查电池优化和后台限制。</string>
     <string name="action_battery_settings">电池设置</string>
 
     <string name="auto_stop_title">自动停止监听</string>
-    <string name="auto_stop_body">设置一次监听最长运行多少小时，超过后应用会自动停止。</string>
+    <string name="auto_stop_body">设置一次监听最多运行多少小时，超过后应用会自动停止。</string>
     <string name="auto_stop_on">已开启自动停止</string>
     <string name="auto_stop_off">已关闭自动停止</string>
-    <string name="auto_stop_changes_immediate">修改会立刻作用到当前监听会话。</string>
+    <string name="auto_stop_changes_immediate">修改会立即作用到当前监听会话。</string>
     <string name="auto_stop_changes_next_session">修改会在下次开始监听时生效。</string>
     <string name="auto_stop_range">范围：1 到 12 小时。</string>
 
@@ -67,7 +86,7 @@
     <string name="status_auto_stop_disabled_session">当前会话未启用</string>
     <string name="status_auto_stop_disabled">已关闭</string>
     <string name="status_auto_stop_at">将于 %1$s 停止</string>
-    <string name="status_listening_active">今晚正在监听</string>
+    <string name="status_listening_active">今夜正在监听</string>
     <string name="status_listening_off">当前未开启监听</string>
     <string name="status_voice_detected">当前检测到人声</string>
     <string name="status_voice_not_detected">当前未检测到人声</string>
@@ -82,17 +101,19 @@
     <string name="label_captured_clips">捕获片段数</string>
     <string name="label_total_duration">总时长</string>
     <string name="label_latest_clip_time">最后片段时间</string>
-    <string name="current_clip_none">还没有正在录的片段</string>
-    <string name="current_clip_stop_hint">停止监听会立刻保存当前片段，不必等完整的 30 秒超时结束。</string>
+    <string name="current_clip_none">还没有正在录制的片段</string>
+    <string name="current_clip_stop_hint">停止监听会立即保存当前片段，不必等完整的 30 秒超时结束。</string>
 
     <string name="action_grant_and_start">授权并开始</string>
     <string name="action_start_listening">开始监听</string>
     <string name="action_stop_listening">停止监听</string>
     <string name="action_refresh_list">刷新列表</string>
-    <string name="primary_action_running_body">监听正在进行。点“停止监听”会立刻结束并保存当前片段。</string>
-    <string name="primary_action_stopped_body">开始监听后，应用会在前台服务中持续检测人声，并自动保存片段。</string>
+    <string name="primary_action_running_body">监听已经开启。只要真正开始录音，这里会立刻出现醒目的录音提示。</string>
+    <string name="primary_action_recording_body">现在已经在录音。点“停止监听”会立刻保存这一段。</string>
+    <string name="primary_action_finishing_body">当前片段正处于收尾倒计时。点“停止监听”会立刻保存这一段。</string>
+    <string name="primary_action_stopped_body">开始监听后，应用会先安静待命；一旦真正开始录音，首页会立即出现高亮提示。</string>
 
-    <string name="recording_group_summary">%1$s · %2$s · %3$s</string>
+    <string name="recording_group_summary">%1$s / %2$s / %3$s</string>
     <string name="recording_clip_at">%1$s 的片段</string>
     <string name="night_of">%1$s 夜间</string>
 
@@ -109,6 +130,14 @@
     <string name="notification_channel_description">用于监听梦话的前台服务</string>
     <string name="notification_title">记录梦话正在运行</string>
     <string name="notification_text">正在监听麦克风，检测到人声时会自动保存片段</string>
+    <string name="notification_title_listening">正在等待人声</string>
+    <string name="notification_text_listening">当前处于监听待命状态，只要检测到人声就会立刻开始保存录音。</string>
+    <string name="notification_title_recording">正在录音</string>
+    <string name="notification_text_recording">已经检测到人声，当前片段正在实时保存。</string>
+    <string name="notification_title_finishing">正在收尾保存</string>
+    <string name="notification_text_finishing">应用正在为当前片段保留收尾倒计时，防止人声刚停就过早结束。</string>
+    <string name="notification_title_error">录音器错误</string>
+    <string name="notification_text_error">请打开应用查看录音错误详情。</string>
     <string name="notification_action_stop">停止</string>
 
     <string name="recorder_state_idle">空闲</string>
@@ -121,6 +150,7 @@
 
     <string name="error_audio_reads_failed">多次读取音频失败。</string>
     <string name="error_microphone_init_failed">无法初始化麦克风。请检查权限，或关闭其他正在占用麦克风的应用。</string>
+    <string name="error_recordings_load_failed">这次没能加载已保存录音。稍后可再刷新，或等存储可用后重新打开应用。</string>
 
     <plurals name="clip_count">
         <item quantity="one">%d 段录音</item>

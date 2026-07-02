@@ -29,10 +29,9 @@ class RecordingStateMachine(
         }
 
         private fun recordingsDir(context: Context): File {
-            return File(
-                context.getExternalFilesDir(Environment.DIRECTORY_MUSIC),
-                "voice-recordings"
-            )
+            val parent = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+                ?: File(context.filesDir, "music")
+            return File(parent, "voice-recordings")
         }
     }
 
@@ -188,75 +187,79 @@ class RecordingStateMachine(
         currentStartedAtMs = 0L
         writer = null
 
-        if (w != null) {
-            val shouldSave = shouldSave(reason, speechDurationMs, speechFrames, audioBytes)
-            val committed = if (f != null && shouldSave) {
-                w.closeAndCommit()
-            } else {
-                w.abort()
-                false
-            }
+        if (w == null) return
 
-            if (f != null && committed) {
-                val endedAtMs = System.currentTimeMillis()
-                RecordingMetadataStore.writeFinalized(
-                    wavFile = f,
-                    createdAt = startedAtMs.takeIf { it > 0L } ?: (endedAtMs - speechDurationMs).coerceAtLeast(0L),
-                    endedAt = endedAtMs,
-                    sampleRate = config.preferredSampleRate,
-                    speechDurationMs = speechDurationMs,
-                    closeReason = reason,
-                    vadEngineName = vadEngineName
+        val shouldSave = shouldSave(reason, speechDurationMs, speechFrames, audioBytes)
+        val committed = if (f != null && shouldSave) {
+            w.closeAndCommit()
+        } else {
+            w.abort()
+            false
+        }
+
+        if (f != null && committed) {
+            val endedAtMs = System.currentTimeMillis()
+            RecordingMetadataStore.writeFinalized(
+                wavFile = f,
+                createdAt = startedAtMs.takeIf { it > 0L }
+                    ?: (endedAtMs - speechDurationMs).coerceAtLeast(0L),
+                endedAt = endedAtMs,
+                sampleRate = config.preferredSampleRate,
+                speechDurationMs = speechDurationMs,
+                closeReason = reason,
+                vadEngineName = vadEngineName
+            )
+            Log.i(
+                TAG,
+                "state -> LISTENING saved=true reason=$reason file=$fileName durationMs=$speechDurationMs"
+            )
+            applyUiMutation { current ->
+                current.copy(
+                    serviceRunning = reason != RecordingCloseReason.Error,
+                    recorderPhase = if (reason == RecordingCloseReason.Error) {
+                        RecorderPhase.RECORDER_FAILED
+                    } else {
+                        RecorderPhase.SAVED
+                    },
+                    currentFileName = null,
+                    lastSavedFileName = fileName,
+                    savedCount = current.savedCount + 1,
+                    errorMessage = if (reason == RecordingCloseReason.Error) current.errorMessage else null,
+                    countdownRemainingMs = null
                 )
-                Log.i(
-                    TAG,
-                    "state -> LISTENING saved=true reason=$reason file=$fileName durationMs=$speechDurationMs"
+            }
+        } else if (reason == RecordingCloseReason.Error || reason == RecordingCloseReason.ProcessDeath) {
+            Log.i(
+                TAG,
+                "aborted active recording reason=$reason file=$fileName durationMs=$speechDurationMs"
+            )
+            applyUiMutation { current ->
+                current.copy(
+                    serviceRunning = false,
+                    recorderPhase = if (reason == RecordingCloseReason.Error) {
+                        RecorderPhase.RECORDER_FAILED
+                    } else {
+                        current.recorderPhase
+                    },
+                    currentFileName = null,
+                    lastSavedFileName = null,
+                    speechDetected = false,
+                    countdownRemainingMs = null
                 )
-                applyUiMutation { current ->
-                    current.copy(
-                        serviceRunning = reason != RecordingCloseReason.ReadError,
-                        recorderPhase = if (reason == RecordingCloseReason.ReadError) {
-                            RecorderPhase.RECORDER_FAILED
-                        } else {
-                            RecorderPhase.SAVED
-                        },
-                        currentFileName = null,
-                        lastSavedFileName = fileName,
-                        savedCount = current.savedCount + 1,
-                        errorMessage = if (reason == RecordingCloseReason.ReadError) {
-                            current.errorMessage
-                        } else {
-                            null
-                        },
-                        countdownRemainingMs = null
-                    )
-                }
-            } else if (reason == RecordingCloseReason.ReadError || reason == RecordingCloseReason.Destroy) {
-                Log.i(
-                    TAG,
-                    "aborted active recording reason=$reason file=$fileName durationMs=$speechDurationMs"
+            }
+        } else {
+            Log.i(
+                TAG,
+                "discarding unsaved file reason=$reason file=$fileName durationMs=$speechDurationMs"
+            )
+            applyUiMutation { current ->
+                current.copy(
+                    serviceRunning = true,
+                    recorderPhase = RecorderPhase.LISTENING,
+                    currentFileName = null,
+                    lastSavedFileName = null,
+                    countdownRemainingMs = null
                 )
-                applyUiMutation { current ->
-                    current.copy(
-                        currentFileName = null,
-                        lastSavedFileName = null,
-                        countdownRemainingMs = null
-                    )
-                }
-            } else {
-                Log.i(
-                    TAG,
-                    "discarding unsaved file reason=$reason file=$fileName durationMs=$speechDurationMs"
-                )
-                applyUiMutation { current ->
-                    current.copy(
-                        serviceRunning = true,
-                        recorderPhase = RecorderPhase.LISTENING,
-                        currentFileName = null,
-                        lastSavedFileName = null,
-                        countdownRemainingMs = null
-                    )
-                }
             }
         }
     }
@@ -273,10 +276,10 @@ class RecordingStateMachine(
             RecordingCloseReason.EndSilence -> {
                 speechDurationMs >= config.minSpeechMs && speechFrameCount >= config.minSpeechFrames
             }
-            RecordingCloseReason.ManualStop,
+            RecordingCloseReason.ManualStop -> true
             RecordingCloseReason.ServiceStop,
-            RecordingCloseReason.ReadError -> true
-            RecordingCloseReason.Destroy -> false
+            RecordingCloseReason.Error -> speechFrameCount > 0
+            RecordingCloseReason.ProcessDeath -> false
         }
     }
 }

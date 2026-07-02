@@ -60,6 +60,22 @@ class WavFileWriterTest {
         assertFalse(wavFile.exists())
     }
 
+    @Test
+    fun closeAndCommitAfterWriteFailureDeletesPartWithoutCreatingWav() {
+        val wavFile = temporaryFolder.newFolder("recordings").resolve("clip.wav")
+        val writer = WavFileWriter(wavFile, sampleRate = 16_000)
+        writer.writeSamples(shortArrayOf(1, 2, 3), 3)
+        writer.javaClass.getDeclaredField("writeFailed").apply {
+            isAccessible = true
+            setBoolean(writer, true)
+        }
+
+        assertFalse(writer.closeAndCommit())
+
+        assertFalse(writer.activeFile.exists())
+        assertFalse(wavFile.exists())
+    }
+
     private fun RandomAccessFile.readAscii(length: Int): String {
         val bytes = ByteArray(length)
         readFully(bytes)

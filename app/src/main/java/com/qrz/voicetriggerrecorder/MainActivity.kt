@@ -5,6 +5,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import com.qrz.voicetriggerrecorder.ui.MainScreen
+import com.qrz.voicetriggerrecorder.ui.theme.VoiceRecorderTheme
 
 class MainActivity : AppCompatActivity() {
 
@@ -12,7 +13,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MainScreen()
+            VoiceRecorderTheme {
+                MainScreen()
+            }
         }
     }
 }
