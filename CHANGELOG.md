@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0 - 2026-07-02
+
+### Stability and recorder internals
+
+- Rebased the 2.0 stability work on top of the 1.2 recorder fixes, keeping the 30-second silence finalization behavior.
+- Split recording close reasons into `EndSilence`, `ManualStop`, `ServiceStop`, `ReadError`, and `Destroy`.
+- Writes active recordings to `.wav.part` first, finalizes the WAV header, then moves the file into place as `.wav`.
+- Cleans stale `.wav.part` files on listener startup.
+- Added a pluggable `VadEngine` interface with the existing rule-based detector as the fallback implementation.
+- Added hidden environment calibration to the rule-based VAD while keeping the existing sensitivity UI unchanged.
+- Added JSON sidecar metadata for recordings while preserving legacy WAV compatibility.
+- Kept APK output naming as `VADRecorder-v{version}.apk`.
+
 ## 1.2 - 2026-07-01
 
 ### 录音保存修复
