@@ -8,21 +8,21 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.core.content.ContextCompat
 import com.qrz.voicetriggerrecorder.record.RecordForegroundService
 
-fun startService(context: android.content.Context) {
+internal fun startService(context: android.content.Context) {
     val intent = Intent(context, RecordForegroundService::class.java).apply {
         action = RecordForegroundService.ACTION_START
     }
     ContextCompat.startForegroundService(context, intent)
 }
 
-fun stopService(context: android.content.Context) {
+internal fun stopService(context: android.content.Context) {
     val intent = Intent(context, RecordForegroundService::class.java).apply {
         action = RecordForegroundService.ACTION_STOP
     }
     context.startService(intent)
 }
 
-fun requestNotificationIfNeeded(
+internal fun requestNotificationIfNeeded(
     context: android.content.Context,
     launcher: ActivityResultLauncher<String>? = null
 ) {
@@ -36,7 +36,7 @@ fun requestNotificationIfNeeded(
     }
 }
 
-fun openAppSettings(context: android.content.Context) {
+internal fun openAppSettings(context: android.content.Context) {
     val intent = Intent(
         Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
         Uri.parse("package:${context.packageName}")
@@ -44,7 +44,7 @@ fun openAppSettings(context: android.content.Context) {
     context.startActivity(intent)
 }
 
-fun openNotificationSettings(context: android.content.Context) {
+internal fun openNotificationSettings(context: android.content.Context) {
     val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -58,7 +58,7 @@ fun openNotificationSettings(context: android.content.Context) {
     context.startActivity(intent)
 }
 
-fun openBatteryOptimizationSettings(context: android.content.Context) {
+internal fun openBatteryOptimizationSettings(context: android.content.Context) {
     val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
     context.startActivity(intent)
 }

@@ -10,14 +10,14 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-data class NightRecordingGroup(
+internal data class NightRecordingGroup(
     val nightDate: LocalDate,
     val recordings: List<RecordingFile>,
     val totalDurationMs: Long,
     val latestModified: Long
 )
 
-fun buildNightGroups(files: List<RecordingFile>): List<NightRecordingGroup> {
+internal fun buildNightGroups(files: List<RecordingFile>): List<NightRecordingGroup> {
     if (files.isEmpty()) return emptyList()
 
     val zoneId = ZoneId.systemDefault()
@@ -44,14 +44,14 @@ private fun nightBucketDate(millis: Long, zoneId: ZoneId): LocalDate {
     }
 }
 
-fun friendlyRecordingLabel(
+internal fun friendlyRecordingLabel(
     context: android.content.Context,
     file: RecordingFile
 ): String {
     return context.getString(R.string.recording_clip_at, formatClockTime(context, file.lastModified))
 }
 
-fun formatNightSectionLabel(
+internal fun formatNightSectionLabel(
     context: android.content.Context,
     date: LocalDate
 ): String {
@@ -62,7 +62,7 @@ fun formatNightSectionLabel(
     return context.getString(R.string.night_of, date.format(formatter))
 }
 
-fun formatCountdown(
+internal fun formatCountdown(
     context: android.content.Context,
     millis: Long
 ): String {
@@ -71,7 +71,7 @@ fun formatCountdown(
     return context.resources.getQuantityString(R.plurals.duration_seconds, quantity, quantity)
 }
 
-fun formatDuration(
+internal fun formatDuration(
     context: android.content.Context,
     durationMs: Long?
 ): String {
@@ -81,7 +81,7 @@ fun formatDuration(
     return formatKnownDuration(context, durationMs)
 }
 
-fun formatKnownDuration(
+internal fun formatKnownDuration(
     context: android.content.Context,
     durationMs: Long
 ): String {
@@ -96,14 +96,14 @@ fun formatKnownDuration(
     }
 }
 
-fun formatFileSize(
+internal fun formatFileSize(
     context: android.content.Context,
     bytes: Long
 ): String {
     return Formatter.formatShortFileSize(context, bytes)
 }
 
-fun formatDateTime(
+internal fun formatDateTime(
     context: android.content.Context,
     millis: Long
 ): String {
@@ -116,7 +116,7 @@ fun formatDateTime(
         .format(formatter)
 }
 
-fun formatClockTime(
+internal fun formatClockTime(
     context: android.content.Context,
     millis: Long
 ): String {
@@ -129,21 +129,21 @@ fun formatClockTime(
         .format(formatter)
 }
 
-fun formatClipCount(
+internal fun formatClipCount(
     context: android.content.Context,
     count: Int
 ): String {
     return context.resources.getQuantityString(R.plurals.clip_count, count, count)
 }
 
-fun formatAutoStopNextSession(
+internal fun formatAutoStopNextSession(
     context: android.content.Context,
     hours: Int
 ): String {
     return context.resources.getQuantityString(R.plurals.status_auto_stop_next_session, hours, hours)
 }
 
-fun formatRecorderState(
+internal fun formatRecorderState(
     context: android.content.Context,
     uiState: RecorderUiState
 ): String {
