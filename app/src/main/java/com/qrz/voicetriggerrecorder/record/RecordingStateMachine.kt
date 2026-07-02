@@ -2,6 +2,7 @@ package com.qrz.voicetriggerrecorder.record
 
 import android.content.Context
 import android.os.Environment
+import android.os.SystemClock
 import android.util.Log
 import com.qrz.voicetriggerrecorder.ui.RecorderPhase
 import com.qrz.voicetriggerrecorder.ui.RecorderUiStateMutation
@@ -15,6 +16,7 @@ class RecordingStateMachine(
     private val context: Context,
     private val config: RecorderConfig,
     private val vadEngineName: String = "RuleBasedVadEngine",
+    private val clockMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val applyUiMutation: (RecorderUiStateMutation) -> Unit
 ) {
     companion object {
@@ -49,11 +51,15 @@ class RecordingStateMachine(
     private var speechFrames = 0
     private var silenceFrames = 0
     private var startConfirmFrames = 0
+    private var resumeConfirmFrames = 0
+    private var lastConfirmedSpeechAtMs = 0L
     private val preRoll = RingBuffer(config.preRollFrames)
+    private val resumeBuffer = RingBuffer(config.resumeConfirmFrames + config.tailKeepFrames)
 
     val countdownRemainingMs: Long?
         get() = if (state == InternalState.HANGOVER) {
-            (config.endSilenceFrames - silenceFrames).coerceAtLeast(0) * config.frameMs.toLong()
+            val elapsedMs = (clockMs() - lastConfirmedSpeechAtMs).coerceAtLeast(0L)
+            (config.endSilenceMs.toLong() - elapsedMs).coerceAtLeast(0L)
         } else {
             null
         }
@@ -71,8 +77,11 @@ class RecordingStateMachine(
         preRoll.clear()
         state = InternalState.LISTENING
         startConfirmFrames = 0
+        resumeConfirmFrames = 0
         speechFrames = 0
         silenceFrames = 0
+        lastConfirmedSpeechAtMs = 0L
+        resumeBuffer.clear()
     }
 
     private fun handleListening(frame: ShortArray, speech: Boolean) {
@@ -102,6 +111,8 @@ class RecordingStateMachine(
 
             speechFrames = startConfirmFrames
             silenceFrames = 0
+            resumeConfirmFrames = 0
+            lastConfirmedSpeechAtMs = clockMs()
             state = InternalState.RECORDING
 
             Log.i(TAG, "state LISTENING -> RECORDING file=$fileName")
@@ -123,8 +134,12 @@ class RecordingStateMachine(
             writer?.writeSamples(frame, frame.size)
             speechFrames++
             silenceFrames = 0
+            resumeConfirmFrames = 0
+            lastConfirmedSpeechAtMs = clockMs()
         } else {
             silenceFrames = 1
+            resumeConfirmFrames = 0
+            resumeBuffer.clear()
             if (silenceFrames <= config.tailKeepFrames) {
                 writer?.writeSamples(frame, frame.size)
             }
@@ -143,35 +158,67 @@ class RecordingStateMachine(
 
     private fun handleHangover(frame: ShortArray, speech: Boolean) {
         if (speech) {
-            writer?.writeSamples(frame, frame.size)
-            speechFrames++
-            silenceFrames = 0
-            state = InternalState.RECORDING
-            Log.i(TAG, "state HANGOVER -> RECORDING")
-            applyUiMutation { current ->
-                current.copy(
-                    serviceRunning = true,
-                    recorderPhase = RecorderPhase.RECORDING,
-                    currentFileName = currentFileName,
-                    lastSavedFileName = null,
-                    countdownRemainingMs = null
-                )
+            resumeConfirmFrames++
+            resumeBuffer.add(frame)
+
+            if (resumeConfirmFrames >= config.resumeConfirmFrames) {
+                for (pending in resumeBuffer.snapshot()) {
+                    writer?.writeSamples(pending, pending.size)
+                }
+                speechFrames += resumeConfirmFrames
+                silenceFrames = 0
+                resumeConfirmFrames = 0
+                resumeBuffer.clear()
+                lastConfirmedSpeechAtMs = clockMs()
+                state = InternalState.RECORDING
+                Log.i(TAG, "state HANGOVER -> RECORDING")
+                applyUiMutation { current ->
+                    current.copy(
+                        serviceRunning = true,
+                        recorderPhase = RecorderPhase.RECORDING,
+                        currentFileName = currentFileName,
+                        lastSavedFileName = null,
+                        countdownRemainingMs = null
+                    )
+                }
+            } else {
+                silenceFrames++
             }
         } else {
+            resumeConfirmFrames = 0
+            resumeBuffer.clear()
             silenceFrames++
             if (silenceFrames <= config.tailKeepFrames) {
                 writer?.writeSamples(frame, frame.size)
             }
-
-            if (silenceFrames >= config.endSilenceFrames) {
-                closeWriterAndFinalize(RecordingCloseReason.EndSilence)
-                state = InternalState.LISTENING
-                startConfirmFrames = 0
-                speechFrames = 0
-                silenceFrames = 0
-                preRoll.clear()
-            }
         }
+
+        val waitingForResumeConfirmation = speech && resumeConfirmFrames > 0
+        if (state == InternalState.HANGOVER && !waitingForResumeConfirmation && shouldEndHangover()) {
+            closeWriterAndFinalize(RecordingCloseReason.EndSilence)
+            state = InternalState.LISTENING
+            startConfirmFrames = 0
+            resumeConfirmFrames = 0
+            speechFrames = 0
+            silenceFrames = 0
+            lastConfirmedSpeechAtMs = 0L
+            preRoll.clear()
+            resumeBuffer.clear()
+        }
+    }
+
+    private fun shouldEndHangover(): Boolean {
+        val elapsedMs = (clockMs() - lastConfirmedSpeechAtMs).coerceAtLeast(0L)
+        return elapsedMs >= config.endSilenceMs
+    }
+
+    private enum class DiscardReason {
+        NoWriter,
+        NoAudio,
+        TooShortForEndSilence,
+        TooShortForServiceStop,
+        Destroy,
+        CommitFailed
     }
 
     private fun closeWriterAndFinalize(reason: RecordingCloseReason) {
@@ -187,14 +234,24 @@ class RecordingStateMachine(
         currentStartedAtMs = 0L
         writer = null
 
-        if (w == null) return
+        if (w == null) {
+            Log.i(
+                TAG,
+                "discarding recording reason=$reason save=false discardReason=${DiscardReason.NoWriter} " +
+                    "speechDurationMs=$speechDurationMs speechFrames=$speechFrames audioBytes=$audioBytes"
+            )
+            return
+        }
 
-        val shouldSave = shouldSave(reason, speechDurationMs, speechFrames, audioBytes)
-        val committed = if (f != null && shouldSave) {
+        var discardReason = discardReason(reason, speechDurationMs, speechFrames, audioBytes)
+        val committed = if (f != null && discardReason == null) {
             w.closeAndCommit()
         } else {
             w.abort()
             false
+        }
+        if (discardReason == null && !committed) {
+            discardReason = DiscardReason.CommitFailed
         }
 
         if (f != null && committed) {
@@ -231,7 +288,8 @@ class RecordingStateMachine(
         } else if (reason == RecordingCloseReason.ReadError || reason == RecordingCloseReason.Destroy) {
             Log.i(
                 TAG,
-                "aborted active recording reason=$reason file=$fileName durationMs=$speechDurationMs"
+                "discarding recording reason=$reason save=false discardReason=$discardReason " +
+                    "speechDurationMs=$speechDurationMs speechFrames=$speechFrames audioBytes=$audioBytes"
             )
             applyUiMutation { current ->
                 current.copy(
@@ -250,7 +308,8 @@ class RecordingStateMachine(
         } else {
             Log.i(
                 TAG,
-                "discarding unsaved file reason=$reason file=$fileName durationMs=$speechDurationMs"
+                "discarding recording reason=$reason save=false discardReason=$discardReason " +
+                    "speechDurationMs=$speechDurationMs speechFrames=$speechFrames audioBytes=$audioBytes"
             )
             applyUiMutation { current ->
                 current.copy(
@@ -264,22 +323,39 @@ class RecordingStateMachine(
         }
     }
 
-    private fun shouldSave(
+    private fun discardReason(
         reason: RecordingCloseReason,
         speechDurationMs: Long,
         speechFrameCount: Int,
         audioBytes: Long
-    ): Boolean {
-        if (audioBytes <= 0L) return false
+    ): DiscardReason? {
+        if (reason == RecordingCloseReason.Destroy) return DiscardReason.Destroy
+        if (audioBytes <= 0L || speechFrameCount <= 0) return DiscardReason.NoAudio
 
         return when (reason) {
-            RecordingCloseReason.EndSilence,
+            RecordingCloseReason.EndSilence -> {
+                if (
+                    speechDurationMs >= config.minEndSilenceSpeechMs &&
+                    speechFrameCount >= config.minEndSilenceSpeechFrames
+                ) {
+                    null
+                } else {
+                    DiscardReason.TooShortForEndSilence
+                }
+            }
             RecordingCloseReason.ServiceStop,
             RecordingCloseReason.ReadError -> {
-                speechDurationMs >= config.minSpeechMs && speechFrameCount >= config.minSpeechFrames
+                if (
+                    speechDurationMs >= config.minSpeechMs &&
+                    speechFrameCount >= config.minSpeechFrames
+                ) {
+                    null
+                } else {
+                    DiscardReason.TooShortForServiceStop
+                }
             }
-            RecordingCloseReason.ManualStop -> true
-            RecordingCloseReason.Destroy -> false
+            RecordingCloseReason.ManualStop -> null
+            RecordingCloseReason.Destroy -> DiscardReason.Destroy
         }
     }
 }

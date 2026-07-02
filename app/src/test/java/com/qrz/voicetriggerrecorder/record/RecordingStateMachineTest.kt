@@ -20,6 +20,7 @@ class RecordingStateMachineTest {
     private lateinit var context: Context
     private lateinit var dir: File
     private var uiState = RecorderUiState()
+    private var fakeClockMs = 0L
 
     @Before
     fun setUp() {
@@ -31,14 +32,15 @@ class RecordingStateMachineTest {
         dir.deleteRecursively()
         dir.mkdirs()
         uiState = RecorderUiState()
+        fakeClockMs = 0L
     }
 
     @Test
     fun shortNoiseAfterTriggerDoesNotSaveWav() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
-        repeat(2) { machine.onFrame(frame(), speech = true) }
-        repeat(3) { machine.onFrame(frame(0), speech = false) }
+        sendSpeech(machine, 2)
+        sendSilence(machine, 3)
 
         assertEquals(emptyList<File>(), wavFiles())
         assertEquals(emptyList<File>(), partFiles())
@@ -48,8 +50,8 @@ class RecordingStateMachineTest {
     fun normalSpeechSavesAfterEndSilence() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
-        repeat(6) { machine.onFrame(frame(), speech = true) }
-        repeat(3) { machine.onFrame(frame(0), speech = false) }
+        sendSpeech(machine, 15)
+        sendSilence(machine, 3)
 
         assertEquals(1, wavFiles().size)
         assertEquals(emptyList<File>(), partFiles())
@@ -61,8 +63,77 @@ class RecordingStateMachineTest {
     fun speechAfterThirtySecondsOfSilenceSaves() {
         val machine = stateMachine(endSilenceMs = 30_000, minSpeechMs = 100)
 
-        repeat(6) { machine.onFrame(frame(), speech = true) }
-        repeat(1_500) { machine.onFrame(frame(0), speech = false) }
+        sendSpeech(machine, 20)
+        sendSilence(machine, 1_500)
+
+        assertEquals(1, wavFiles().size)
+        assertEquals("EndSilence", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+    }
+
+    @Test
+    fun endSilenceSavesShortRealSpeechAboveEndSilenceThreshold() {
+        val machine = stateMachine(endSilenceMs = 30_000, minSpeechMs = 800)
+
+        sendSpeech(machine, 20)
+        sendSilence(machine, 1_500)
+
+        assertEquals(1, wavFiles().size)
+        assertEquals("EndSilence", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+    }
+
+    @Test
+    fun endSilenceDiscardsOnlyVeryShortNoise() {
+        val machine = stateMachine(endSilenceMs = 30_000, minSpeechMs = 800)
+
+        sendSpeech(machine, 5)
+        sendSilence(machine, 1_500)
+
+        assertEquals(emptyList<File>(), wavFiles())
+        assertEquals(emptyList<File>(), partFiles())
+    }
+
+    @Test
+    fun singleFalsePositiveDuringHangoverDoesNotResetCountdown() {
+        val machine = stateMachine(endSilenceMs = 30_000, minSpeechMs = 800)
+
+        sendSpeech(machine, 20)
+        sendSilence(machine, 500)
+        sendSpeech(machine, 1)
+        sendSilence(machine, 1_000)
+
+        assertEquals(1, wavFiles().size)
+        assertEquals("EndSilence", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+    }
+
+    @Test
+    fun sustainedSpeechDuringHangoverResumesRecording() {
+        val machine = stateMachine(
+            endSilenceMs = 1_000,
+            minSpeechMs = 800,
+            resumeConfirmMs = 60
+        )
+
+        sendSpeech(machine, 20)
+        sendSilence(machine, 10)
+        sendSpeech(machine, 3)
+        sendSilence(machine, 40)
+
+        assertEquals(emptyList<File>(), wavFiles())
+
+        sendSilence(machine, 12)
+
+        assertEquals(1, wavFiles().size)
+        assertEquals("EndSilence", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+    }
+
+    @Test
+    fun countdownUsesElapsedTimeNotOnlyFrameCount() {
+        val machine = stateMachine(endSilenceMs = 30_000, minSpeechMs = 800)
+
+        sendSpeech(machine, 20)
+        sendSilence(machine, 1)
+        fakeClockMs += 30_000L
+        sendSilence(machine, 1)
 
         assertEquals(1, wavFiles().size)
         assertEquals("EndSilence", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
@@ -72,7 +143,7 @@ class RecordingStateMachineTest {
     fun manualStopSavesValidActiveAudio() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 800)
 
-        repeat(2) { machine.onFrame(frame(), speech = true) }
+        sendSpeech(machine, 2)
         machine.closeCurrentFileIfNeeded(RecordingCloseReason.ManualStop)
 
         assertEquals(1, wavFiles().size)
@@ -83,7 +154,7 @@ class RecordingStateMachineTest {
     fun serviceStopDoesNotSaveShortNoise() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 800)
 
-        repeat(2) { machine.onFrame(frame(), speech = true) }
+        sendSpeech(machine, 2)
         machine.closeCurrentFileIfNeeded(RecordingCloseReason.ServiceStop)
 
         assertEquals(emptyList<File>(), wavFiles())
@@ -94,7 +165,7 @@ class RecordingStateMachineTest {
     fun readErrorFinalizesValidActiveAudio() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
-        repeat(6) { machine.onFrame(frame(), speech = true) }
+        sendSpeech(machine, 6)
         machine.closeCurrentFileIfNeeded(RecordingCloseReason.ReadError)
 
         assertEquals(1, wavFiles().size)
@@ -105,7 +176,7 @@ class RecordingStateMachineTest {
     fun readErrorDoesNotSaveShortNoise() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 800)
 
-        repeat(2) { machine.onFrame(frame(), speech = true) }
+        sendSpeech(machine, 2)
         machine.closeCurrentFileIfNeeded(RecordingCloseReason.ReadError)
 
         assertEquals(emptyList<File>(), wavFiles())
@@ -116,7 +187,7 @@ class RecordingStateMachineTest {
     fun destroyRemovesActivePartialFile() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
-        repeat(2) { machine.onFrame(frame(), speech = true) }
+        sendSpeech(machine, 2)
         assertTrue(partFiles().isNotEmpty())
 
         machine.closeCurrentFileIfNeeded(RecordingCloseReason.Destroy)
@@ -149,7 +220,8 @@ class RecordingStateMachineTest {
 
     private fun stateMachine(
         endSilenceMs: Int,
-        minSpeechMs: Int
+        minSpeechMs: Int,
+        resumeConfirmMs: Int = 120
     ): RecordingStateMachine {
         val config = RecorderConfig(
             preferredSampleRate = 16_000,
@@ -157,15 +229,32 @@ class RecordingStateMachineTest {
             preRollMs = 40,
             endSilenceMs = endSilenceMs,
             minSpeechMs = minSpeechMs,
+            minEndSilenceSpeechMs = 300,
             tailKeepMs = 40,
-            startConfirmMs = 40
+            startConfirmMs = 40,
+            resumeConfirmMs = resumeConfirmMs
         )
         return RecordingStateMachine(
             context = context,
             config = config,
             vadEngineName = "TestVad",
+            clockMs = { fakeClockMs },
             applyUiMutation = { mutation -> uiState = mutation(uiState) }
         )
+    }
+
+    private fun sendSpeech(machine: RecordingStateMachine, count: Int) {
+        repeat(count) {
+            machine.onFrame(frame(), speech = true)
+            fakeClockMs += 20L
+        }
+    }
+
+    private fun sendSilence(machine: RecordingStateMachine, count: Int) {
+        repeat(count) {
+            machine.onFrame(frame(0), speech = false)
+            fakeClockMs += 20L
+        }
     }
 
     private fun frame(amplitude: Short = 1_000, size: Int = 320): ShortArray {
