@@ -27,7 +27,7 @@
 ## 安装
 
 ```powershell
-adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.0.apk
 ```
 
 如果设备上已有同包名但签名不同的版本，先卸载：
