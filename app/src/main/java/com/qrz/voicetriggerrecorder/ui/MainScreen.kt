@@ -58,6 +58,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.qrz.voicetriggerrecorder.R
 import com.qrz.voicetriggerrecorder.app.AppLanguage
+import com.qrz.voicetriggerrecorder.app.AppNightMode
 import com.qrz.voicetriggerrecorder.record.RecordForegroundService
 import com.qrz.voicetriggerrecorder.record.RecorderPreferences
 import com.qrz.voicetriggerrecorder.record.RecordingFile
@@ -83,6 +84,7 @@ fun MainScreen() {
     var permissionDeniedPermanently by remember { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf(preferences.loadSensitivityPreset()) }
     var selectedLanguage by remember { mutableStateOf(preferences.loadAppLanguage()) }
+    var selectedNightMode by remember { mutableStateOf(preferences.loadAppNightMode()) }
     var autoStopEnabled by remember { mutableStateOf(preferences.loadAutoStopHours() > 0) }
     var autoStopHours by remember {
         mutableIntStateOf(
@@ -166,6 +168,13 @@ fun MainScreen() {
         }
     }
 
+    fun saveNightMode(mode: AppNightMode) {
+        if (selectedNightMode == mode) return
+        selectedNightMode = mode
+        preferences.saveAppNightMode(mode)
+        mode.apply()
+    }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
@@ -207,6 +216,7 @@ fun MainScreen() {
             autoStopHours = loadedAutoStopHours
         }
         selectedLanguage = preferences.loadAppLanguage()
+        selectedNightMode = preferences.loadAppNightMode()
 
         val audioGranted = ContextCompat.checkSelfPermission(
             context,
@@ -304,6 +314,7 @@ fun MainScreen() {
                         .padding(padding),
                     serviceRunning = uiState.serviceRunning,
                     selectedLanguage = selectedLanguage,
+                    selectedNightMode = selectedNightMode,
                     selectedPreset = selectedPreset,
                     autoStopEnabled = autoStopEnabled,
                     autoStopHours = autoStopHours,
@@ -316,6 +327,7 @@ fun MainScreen() {
                         preferences.saveSensitivityPreset(preset)
                     },
                     onLanguageSelected = { language -> saveLanguage(language) },
+                    onNightModeSelected = { mode -> saveNightMode(mode) },
                     onAutoStopEnabledChange = { enabled ->
                         autoStopEnabled = enabled
                         saveAutoStop(if (enabled) autoStopHours else 0)
@@ -665,6 +677,7 @@ private fun SettingsTabContent(
     modifier: Modifier,
     serviceRunning: Boolean,
     selectedLanguage: AppLanguage,
+    selectedNightMode: AppNightMode,
     selectedPreset: SensitivityPreset,
     autoStopEnabled: Boolean,
     autoStopHours: Int,
@@ -673,6 +686,7 @@ private fun SettingsTabContent(
     notificationPermissionGranted: Boolean,
     batteryOptimizationEnabled: Boolean,
     onLanguageSelected: (AppLanguage) -> Unit,
+    onNightModeSelected: (AppNightMode) -> Unit,
     onPresetSelected: (SensitivityPreset) -> Unit,
     onAutoStopEnabledChange: (Boolean) -> Unit,
     onAutoStopHoursDraftChange: (Int) -> Unit,
@@ -705,6 +719,13 @@ private fun SettingsTabContent(
                 selectedLanguage = selectedLanguage,
                 serviceRunning = serviceRunning,
                 onLanguageSelected = onLanguageSelected
+            )
+        }
+
+        item {
+            NightModeCard(
+                selectedNightMode = selectedNightMode,
+                onNightModeSelected = onNightModeSelected
             )
         }
 
@@ -909,6 +930,53 @@ private fun LanguageCard(
                 } else {
                     stringResource(R.string.language_effect_stopped)
                 },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun NightModeCard(
+    selectedNightMode: AppNightMode,
+    onNightModeSelected: (AppNightMode) -> Unit
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                stringResource(R.string.theme_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                stringResource(R.string.theme_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AppNightMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = mode == selectedNightMode,
+                        onClick = { onNightModeSelected(mode) },
+                        label = { Text(stringResource(mode.labelRes)) }
+                    )
+                }
+            }
+
+            Text(
+                stringResource(R.string.theme_effect),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

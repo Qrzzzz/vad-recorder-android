@@ -49,6 +49,12 @@
     <string name="language_chinese_simplified">简体中文</string>
     <string name="language_effect_running">切换会立即生效，并刷新当前监听通知。</string>
     <string name="language_effect_stopped">切换会在当前界面重新绘制时立即生效。</string>
+    <string name="theme_title">外观</string>
+    <string name="theme_subtitle">使用 Android 原生夜间模式，可跟随系统、固定浅色或固定深色。</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="theme_effect">切换会立即生效，并保持启动页、系统栏和应用配色一致。</string>
     <string name="tip_microphone_permission_title">缺少麦克风权限</string>
     <string name="tip_microphone_permission_body_settings">没有麦克风权限就无法监听。请打开系统设置，重新为此应用启用权限。</string>
     <string name="tip_microphone_permission_body_request">点击“开始监听”时请授予麦克风权限，否则应用无法检测人声。</string>

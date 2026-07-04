@@ -49,6 +49,12 @@
     <string name="language_chinese_simplified">Simplified Chinese</string>
     <string name="language_effect_running">The change applies immediately and refreshes the active listening notification.</string>
     <string name="language_effect_stopped">The change applies immediately the next time this screen redraws.</string>
+    <string name="theme_title">Appearance</string>
+    <string name="theme_subtitle">Use Android native night mode so the app can follow the system, stay light, or stay dark.</string>
+    <string name="theme_system">Follow system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_effect">Changes apply immediately and keep the launch screen, system bars, and app colors aligned.</string>
     <string name="tip_microphone_permission_title">Microphone permission is missing</string>
     <string name="tip_microphone_permission_body_settings">The recorder cannot listen without microphone permission. Open system settings and re-enable it for this app.</string>
     <string name="tip_microphone_permission_body_request">Grant microphone permission when you tap Start listening so the recorder can actually detect voice.</string>
