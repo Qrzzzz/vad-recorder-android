@@ -215,7 +215,6 @@ class RecordingStateMachine(
     private enum class DiscardReason {
         NoWriter,
         NoAudio,
-        TooShortForEndSilence,
         TooShortForServiceStop,
         Destroy,
         CommitFailed
@@ -334,14 +333,7 @@ class RecordingStateMachine(
 
         return when (reason) {
             RecordingCloseReason.EndSilence -> {
-                if (
-                    speechDurationMs >= config.minEndSilenceSpeechMs &&
-                    speechFrameCount >= config.minEndSilenceSpeechFrames
-                ) {
-                    null
-                } else {
-                    DiscardReason.TooShortForEndSilence
-                }
+                null
             }
             RecordingCloseReason.ServiceStop,
             RecordingCloseReason.ReadError -> {

@@ -36,10 +36,10 @@ class RecordingStateMachineTest {
     }
 
     @Test
-    fun shortNoiseAfterTriggerDoesNotSaveWav() {
+    fun unconfirmedShortNoiseDoesNotSaveWav() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
-        sendSpeech(machine, 2)
+        sendSpeech(machine, 1)
         sendSilence(machine, 3)
 
         assertEquals(emptyList<File>(), wavFiles())
@@ -71,13 +71,15 @@ class RecordingStateMachineTest {
     }
 
     @Test
-    fun endSilenceSavesShortRealSpeechAboveEndSilenceThreshold() {
+    fun endSilenceSavesConfirmedActiveClipEvenWhenShort() {
         val machine = stateMachine(endSilenceMs = 30_000, minSpeechMs = 800)
 
-        sendSpeech(machine, 20)
+        sendSpeech(machine, 6)
         sendSilence(machine, 1_500)
 
         assertEquals(1, wavFiles().size)
+        assertEquals(1, uiState.savedCount)
+        assertEquals(wavFiles().single().name, uiState.lastSavedFileName)
         assertEquals("EndSilence", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
     }
 
@@ -85,7 +87,7 @@ class RecordingStateMachineTest {
     fun endSilenceDiscardsOnlyVeryShortNoise() {
         val machine = stateMachine(endSilenceMs = 30_000, minSpeechMs = 800)
 
-        sendSpeech(machine, 5)
+        sendSpeech(machine, 1)
         sendSilence(machine, 1_500)
 
         assertEquals(emptyList<File>(), wavFiles())
@@ -229,7 +231,6 @@ class RecordingStateMachineTest {
             preRollMs = 40,
             endSilenceMs = endSilenceMs,
             minSpeechMs = minSpeechMs,
-            minEndSilenceSpeechMs = 300,
             tailKeepMs = 40,
             startConfirmMs = 40,
             resumeConfirmMs = resumeConfirmMs
