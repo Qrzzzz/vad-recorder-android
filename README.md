@@ -8,7 +8,7 @@
 - 前台服务常驻通知，减少系统回收导致的中断。
 - 首页可查看实时状态、最后一段录音和昨夜摘要。
 - 支持应用内播放、删除误触发片段。
-- 设置页支持灵敏度预设、自动停止时长、语言切换。
+- 设置页支持灵敏度预设、自动停止时长、语言切换和 Android 原生夜间模式。
 - 录音先写入 `.wav.part`，完成 WAV header 后再保存为正式 `.wav`。
 - 每段新录音会生成 JSON sidecar 元数据；旧 WAV 仍可通过 header 兼容读取。
 
@@ -27,7 +27,7 @@
 ## 安装
 
 ```powershell
-adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.0.apk
+adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.1.apk
 ```
 
 如果设备上已有同包名但签名不同的版本，先卸载：
@@ -39,7 +39,7 @@ adb uninstall com.qrz.voicetriggerrecorder
 ## 使用
 
 1. 打开 App。
-2. 如需切换语言，先到“设置”页选择 `跟随系统 / English / 简体中文`。
+2. 如需切换语言或外观，先到“设置”页选择语言和 `跟随系统 / 浅色 / 深色`。
 3. 点击“开始监听”。
 4. 授予麦克风权限；Android 13 及以上可能还会请求通知权限。
 5. 保持手机靠近床边。检测到人声后，应用会开始录制当前片段。
@@ -66,7 +66,7 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 - 状态机：`RecordingStateMachine` 使用明确关闭原因收尾，并过滤短促误触发。
 - 文件安全：先写 `.wav.part`，finalize 成功后再移动为 `.wav`，启动时可清理陈旧 partial 文件。
 - 元数据：每个新 WAV 搭配 JSON sidecar，记录时间、时长、大小、采样率、关闭原因、VAD 引擎、finalize 状态等。
-- UI：Jetpack Compose + Material 3。
+- UI：Jetpack Compose + Material 3，外观通过 AppCompat 原生夜间模式跟随系统或固定浅色/深色。
 - 后台执行：`foregroundServiceType="microphone"`。
 - `minSdk 26` / `targetSdk 35`。
 

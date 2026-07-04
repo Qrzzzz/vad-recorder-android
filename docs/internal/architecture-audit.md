@@ -8,6 +8,7 @@ Scope: document the current implementation only. This audit intentionally does n
 
 ```text
 MainScreen
+  -> VoiceRecorderApp / AppCompatDelegate
   -> RecordForegroundService
   -> AudioCaptureEngine
   -> VadEngine / RuleBasedVadEngine
@@ -27,6 +28,7 @@ Responsibilities observed:
 - Owns permission prompts, notification permission prompts, playback, delete confirmation, and the recordings list refresh.
 - Creates `RecordingRepository(context)` directly and uses it to list and delete saved WAV files.
 - Persists settings through `RecorderPreferences`, then calls `RecordForegroundService.requestSettingsRefresh(context)` when settings should affect a running session.
+- Persists app-level language and appearance settings. Language is applied through AppCompat locales; appearance is applied through AppCompat native night mode.
 
 Important details:
 
@@ -186,6 +188,18 @@ State consumers:
 Audit finding:
 
 - There is no single owner for all recorder state transitions. Service, engine, and state machine all mutate the same UI state object through callbacks. This keeps the implementation compact, but it makes transition ordering and reset behavior harder to reason about.
+
+## App Settings Outside the Recorder Session
+
+`VoiceRecorderApp` loads `RecorderPreferences` at process startup, applies the persisted `AppNightMode`, and then applies the persisted `AppLanguage`.
+
+Night mode is represented by `AppNightMode`:
+
+- `SYSTEM` maps to `AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM`.
+- `LIGHT` maps to `AppCompatDelegate.MODE_NIGHT_NO`.
+- `DARK` maps to `AppCompatDelegate.MODE_NIGHT_YES`.
+
+Compose still derives its palette from `isSystemInDarkTheme()`. Because the selected mode is applied through AppCompat, the Android `uiMode`, Compose color scheme, system bar icon contrast, and `values-night` launch resources stay on the same native night-mode path.
 
 ## File Write Path
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1 - 2026-07-04
+
+### Android native night mode
+
+- Added an Appearance card in Settings with System, Light, and Dark options.
+- Persisted the selected night mode and applied it through `AppCompatDelegate.setDefaultNightMode(...)`, so Compose colors, system bars, and `values-night` launch resources stay aligned with Android's native night-mode state.
+- Kept System as the default so existing installs continue to follow the device setting.
+- Updated the debug APK version to `2.1`, keeping the `VADRecorder-v{version}.apk` output naming.
+
+### Recording save fix
+
+- Fixed a case where a confirmed active clip could be discarded after the 30-second silence auto-finish instead of being saved and shown in the recordings list.
+
 ## 2.0 - 2026-07-02
 
 ### Stability and recorder internals

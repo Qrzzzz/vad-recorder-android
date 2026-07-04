@@ -36,3 +36,5 @@ adb shell rm -f /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/vo
 - Change sensitivity before starting a session and confirm detection behavior changes on the next run.
 - Change auto-stop while listening and confirm the running session updates its target stop time.
 - Let auto-stop end a session and confirm any active valid clip is saved.
+- Change Appearance to Follow system, Light, and Dark; confirm the screen recreates cleanly, the selected chip persists after reopening the app, and the launch background/system bars match the selected mode.
+- With Appearance set to Follow system, toggle Android's system dark theme and confirm the app follows the native system setting.

@@ -2,6 +2,7 @@ package com.qrz.voicetriggerrecorder.record
 
 import android.content.Context
 import com.qrz.voicetriggerrecorder.app.AppLanguage
+import com.qrz.voicetriggerrecorder.app.AppNightMode
 
 class RecorderPreferences(context: Context) {
 
@@ -10,6 +11,7 @@ class RecorderPreferences(context: Context) {
         private const val KEY_SENSITIVITY_PRESET = "sensitivity_preset"
         private const val KEY_AUTO_STOP_HOURS = "auto_stop_hours"
         private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_APP_NIGHT_MODE = "app_night_mode"
     }
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -40,5 +42,15 @@ class RecorderPreferences(context: Context) {
 
     fun saveAppLanguage(language: AppLanguage) {
         prefs.edit().putString(KEY_APP_LANGUAGE, language.storageValue).apply()
+    }
+
+    fun loadAppNightMode(): AppNightMode {
+        return AppNightMode.fromStorageValue(
+            prefs.getString(KEY_APP_NIGHT_MODE, AppNightMode.SYSTEM.storageValue)
+        )
+    }
+
+    fun saveAppNightMode(mode: AppNightMode) {
+        prefs.edit().putString(KEY_APP_NIGHT_MODE, mode.storageValue).apply()
     }
 }

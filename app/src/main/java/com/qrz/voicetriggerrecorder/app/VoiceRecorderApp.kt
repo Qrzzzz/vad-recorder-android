@@ -6,6 +6,8 @@ import com.qrz.voicetriggerrecorder.record.RecorderPreferences
 class VoiceRecorderApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        RecorderPreferences(this).loadAppLanguage().apply()
+        val preferences = RecorderPreferences(this)
+        preferences.loadAppNightMode().apply()
+        preferences.loadAppLanguage().apply()
     }
 }
