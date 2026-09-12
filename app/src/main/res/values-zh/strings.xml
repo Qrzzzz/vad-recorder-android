@@ -183,4 +183,15 @@
         <item quantity="one">%d 秒</item>
         <item quantity="other">%d 秒</item>
     </plurals>
+    <string name="action_more">更多</string>
+    <string name="recording_more_actions">%1$s 的更多操作</string>
+    <string name="action_share">分享录音</string>
+    <string name="action_export">另存为文件</string>
+    <string name="transfer_working">正在准备录音文件…</string>
+    <string name="export_saved">录音文件已保存。</string>
+    <string name="transfer_source_unavailable">录音已不存在、尚未完成或已损坏，原件未作更改。</string>
+    <string name="export_failed">无法保存文件，原录音未作更改。</string>
+    <string name="export_incomplete_document">保存未完成，原录音未作更改；所选位置可能留有不完整的文件。</string>
+    <string name="share_failed">无法准备这段录音进行分享，原件未作更改。</string>
+    <string name="transfer_no_app">无法打开系统选择器，请检查是否有可用的应用。</string>
 </resources>

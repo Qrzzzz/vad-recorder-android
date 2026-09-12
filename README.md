@@ -8,6 +8,7 @@
 - 前台服务常驻通知，减少系统回收导致的中断。
 - 首页可查看实时状态、最后一段录音和昨夜摘要。
 - 支持应用内播放、暂停续播和进度拖动；选中片段显示已播放／总时长，也可删除误触发片段。
+- 每段已完成的录音可通过“更多”菜单分享，或用系统文件选择器另存为 WAV；取消或失败保留原录音。
 - 设置页支持灵敏度预设、自动停止时长、语言切换和 Android 原生夜间模式。
 - 录音先写入 `.wav.part`，完成 WAV header 后再保存为正式 `.wav`。
 - 每段新录音会生成 JSON sidecar 元数据；旧 WAV 仍可通过 header 兼容读取。
@@ -27,7 +28,7 @@
 ## 安装
 
 ```powershell
-adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.3.apk
+adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.4.apk
 ```
 
 升级时须使用与已安装版本相同的签名。签名不一致时先核对构建使用的密钥；卸载会清除应用录音，不应作为默认升级步骤。
@@ -42,6 +43,9 @@ adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.3.apk
 6. 停止说话后进入 30 秒收尾倒计时；倒计时内再次检测到人声，会继续写入同一片段。
 7. 点击“停止监听”会立即结束并保存当前有效片段。
 8. 在夜间录音列表点击“播放”展开播放器；可以暂停后继续播放，也可以拖动进度条定位。切换到设置或把应用放入后台会暂停回听，返回原界面后可手动继续；界面重建或退出会释放播放器。
+9. 点击片段“更多”菜单：选择“分享录音”打开系统分享面板，或选择“另存为文件”指定文件名和保存位置。删除操作也在此菜单中，仍需确认。
+
+分享使用只读临时副本，不会向接收应用开放原录音或 JSON 元数据。应用启动或再次分享时清理超过 24 小时的分享副本；系统也可能提前回收缓存。需要长期保留时请另存为文件。打开分享面板不代表对方已接收；保存失败时会提示，无法清理目标文件时会说明所选位置可能留有不完整文件。
 
 ## 录音保存路径
 
@@ -71,7 +75,7 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 
 - 当前仍使用轻量规则 VAD，不保证完全排除电视声、音乐人声或强背景噪声。
 - 录音文件仍为 WAV，体积较大。
-- 文件保存在应用私有目录，本轮不提供系统级导出、分享、外部文件选择器或云同步。
+- 原录音保存在应用私有目录；分享和另存为仅支持单段已完成的 WAV，不包含 JSON 元数据，不提供批量导出或云同步。
 - 本轮不实现 M4A/AAC/FLAC 压缩。
 - 某些 ROM 的省电策略仍可能影响熄屏后的前台服务稳定性。
 
@@ -91,4 +95,4 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 
 ## 版本发布与真机验收
 
-发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.3 更新内容见 [2.3 更新说明](./docs/releases/2.3.md)，验证结果见 [2.3 验收记录](./docs/internal/v2.3-validation.md)。历史发布验证见 [2.2 验收记录](./docs/internal/v2.2-validation.md)。
+发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.4 更新内容见 [2.4 更新说明](./docs/releases/2.4.md)，验证结果见 [2.4 验收记录](./docs/internal/v2.4-validation.md)。历史验证见 [2.3 验收记录](./docs/internal/v2.3-validation.md)和 [2.2 验收记录](./docs/internal/v2.2-validation.md)。
