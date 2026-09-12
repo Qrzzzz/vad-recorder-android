@@ -7,13 +7,7 @@ Use this checklist after recorder-core changes and before publishing a debug bui
 - Build and install the current debug APK on a physical Android device.
 - Grant microphone permission when prompted.
 - On Android 13+, grant notification permission when prompted.
-- Confirm the recordings directory is empty before the run:
-
-```powershell
-adb shell rm -f /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice-recordings/*.wav
-adb shell rm -f /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice-recordings/*.wav.json
-adb shell rm -f /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice-recordings/*.wav.part
-```
+- Use `-PdeviceAcceptance` and disposable fixtures in the `.acceptance` package. Clean only fixtures created by the run; never clear the production recording directory to prepare a test.
 
 ## Recorder Core
 
@@ -48,7 +42,17 @@ Use the independent `.acceptance` package and disposable WAV fixtures for automa
 - Drag the slider while playing and paused; confirm the position follows the final drag target without jumping back to the pre-seek position. Also exercise the accessibility SetProgress action.
 - Seek near the end, let playback finish, and replay from the beginning.
 - Switch to a different clip: the previous player closes and only the new clip plays.
-- Delete an active or paused selected clip: player controls disappear and WAV/sidecar are removed together.
+- Delete an active or paused selected clip through More → Delete: player controls disappear and WAV/sidecar are removed together.
 - Switch to Settings or send the app to the background: playback pauses. Return to the same screen instance and resume manually.
 - Recreate or close the activity: playback resources are released and no stale active controls remain.
 - Verify Chinese/English, light/dark appearance, readable duration labels, and the slider's accessibility label and state description.
+
+## Export and Share 2.4
+
+- More → Save as file opens the system picker with the WAV filename. Save to Downloads and compare SHA-256 with the source; also verify a renamed file and cancellation.
+- Recreate the app behind the picker, then return a result or cancel. The pending source remains bound to the request, and the row becomes usable again afterward.
+- More → Share audio opens the real Android Sharesheet. A separate test receiver must read exactly the expected bytes and be denied write/delete access. Cancelling the chooser preserves the WAV and JSON.
+- Verify that unfinished, missing, corrupt, truncated, and out-of-directory sources cannot be transferred. Old complete WAV files without sidecars still work.
+- Exercise null destination streams, write/close failures and cleanup failures. Report success only after the destination is closed; never change the original or claim share delivery.
+- Preserve recent share snapshots while cleaning those older than 24 hours on next launch/share. Repeat sharing to confirm unique copies and filenames.
+- Verify English/light and Chinese/dark menus, progress and result messages, and the contextual accessibility label on More. Regress 2.3 playback, seek, pause/resume and delete behavior.

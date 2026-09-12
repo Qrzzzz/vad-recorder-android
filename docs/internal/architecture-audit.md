@@ -2,6 +2,8 @@
 
 Audit date: 2026-07-01
 
+2.4 transfer addendum (2026-09-12): `MainActivity` owns an Android `RecordingTransferViewModel`. Its `SavedStateHandle` binds a pending document-picker result to one filename; its ViewModel coroutine survives Activity recreation and copies off the UI thread. `MainScreen` supplies the CreateDocument launcher, chooser, progress/result feedback and a per-clip More menu. Playback pauses before either hand-off. `RecordingTransfer` validates a direct repository child and complete WAV data without changing its sidecar. Export streams to the user-created document and attempts to delete that destination on failure. Sharing creates unique snapshots under `cache/recording-shares/`, exposed by a non-exported `RecordingShareProvider` with temporary read grants and write/delete rejection. No original directory or JSON file is mapped. Snapshots older than 24 hours are pruned on launch/share; no delivery or persisted `isExported` claim is made. The recorder core remains unchanged.
+
 2.3 playback addendum (2026-09-12): `MainScreen` now owns a screen-scoped `PlaybackController` exposing playback state through `StateFlow`. `AndroidPlaybackPlayer` wraps asynchronous `MediaPlayer` preparation and callbacks; `PlaybackProgress` renders the selected clip's seek slider and elapsed/total time. Pause retains the player and position. Switching clips, deleting the selection, or disposing the screen releases it. Leaving Home or receiving `ON_STOP` pauses playback, including a pending asynchronous preparation. The recorder-core audit below remains a historical snapshot.
 
 Scope: document the current implementation only. This audit intentionally does not prescribe a broad rewrite or change runtime behavior.

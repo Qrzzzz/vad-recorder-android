@@ -52,4 +52,14 @@ class RecordingRepository(private val context: Context) {
         val deletedMetadata = RecordingMetadataStore.deleteFor(file)
         return deletedRecording && deletedMetadata
     }
+
+    internal fun fileForTransfer(fileName: String): File {
+        require(fileName.isNotBlank() && '/' !in fileName && '\\' !in fileName)
+        require(fileName.endsWith(".wav", ignoreCase = true))
+        val directory = recordingsDir.canonicalFile
+        val file = File(directory, fileName).canonicalFile
+        require(file.parentFile == directory && file.isFile && file.canRead())
+        require(RecordingMetadataStore.isReadyForTransfer(file))
+        return file
+    }
 }

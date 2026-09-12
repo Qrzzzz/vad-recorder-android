@@ -1,6 +1,7 @@
 package com.qrz.voicetriggerrecorder.ui
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
 import androidx.annotation.StringRes
@@ -8,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,12 +25,17 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -51,6 +58,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -74,7 +83,7 @@ private enum class MainTab(
     SETTINGS(R.string.tab_settings)
 }
 @Composable
-fun MainScreen() {
+fun MainScreen(transfers: RecordingTransferViewModel) {
     val context = LocalContext.current
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -98,6 +107,31 @@ fun MainScreen() {
     var fileLoadError by remember { mutableStateOf<String?>(null) }
     val playbackController = remember { PlaybackController() }
     val playback by playbackController.state.collectAsState()
+    val transferState by transfers.state.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
+    val exportLauncher = rememberLauncherForActivityResult(
+        CreateRecordingDocument()
+    ) { transfers.destinationSelected(it) }
+
+    LaunchedEffect(transferState.messageRes) {
+        transferState.messageRes?.let { message ->
+            snackbar.showSnackbar(context.getString(message))
+            transfers.dismissMessage()
+        }
+    }
+
+    LaunchedEffect(transferState.shareIntent, resumeTick) {
+        val intent = transferState.shareIntent
+        if (intent != null && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            // Hand-off is not delivery confirmation; cancelling the chooser changes no metadata.
+            try {
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.action_share)))
+                transfers.shareLaunched()
+            } catch (_: Exception) {
+                transfers.launchFailed()
+            }
+        }
+    }
 
     fun refreshFiles() {
         runCatching { repository.listRecordings() }
@@ -236,6 +270,19 @@ fun MainScreen() {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        snackbarHost = {
+            Column {
+                if (transferState.busy) {
+                    Surface(tonalElevation = 3.dp) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Text(stringResource(R.string.transfer_working))
+                            LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+                        }
+                    }
+                }
+                SnackbarHost(snackbar)
+            }
+        },
         bottomBar = {
             TabRow(selectedTabIndex = selectedTab.ordinal) {
                 MainTab.entries.forEach { tab ->
@@ -286,6 +333,18 @@ fun MainScreen() {
                     onPlayPause = { playbackController.toggle(it.path) },
                     onSeek = { path, position -> playbackController.seekTo(path, position) },
                     onDelete = { filePendingDelete = it },
+                    transferActionsEnabled = transferState.actionsEnabled,
+                    onShare = {
+                        playbackController.pause()
+                        transfers.share(it.name)
+                    },
+                    onExport = {
+                        if (transfers.beginExport(it.name)) {
+                            playbackController.pause()
+                            try { exportLauncher.launch(it.name) }
+                            catch (_: Exception) { transfers.launchFailed() }
+                        }
+                    },
                     onOpenSettingsTab = {
                         playbackController.pause()
                         selectedTab = MainTab.SETTINGS
@@ -386,6 +445,9 @@ private fun HomeTabContent(
     onPlayPause: (RecordingFile) -> Unit,
     onSeek: (String, Int) -> Unit,
     onDelete: (RecordingFile) -> Unit,
+    transferActionsEnabled: Boolean,
+    onShare: (RecordingFile) -> Unit,
+    onExport: (RecordingFile) -> Unit,
     onOpenSettingsTab: () -> Unit
 ) {
     LazyColumn(
@@ -514,7 +576,10 @@ private fun HomeTabContent(
                     playback = playback,
                     onPlayPause = onPlayPause,
                     onSeek = onSeek,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    transferActionsEnabled = transferActionsEnabled,
+                    onShare = onShare,
+                    onExport = onExport
                 )
             }
         }
@@ -1222,7 +1287,10 @@ private fun NightGroupCard(
     playback: PlaybackState,
     onPlayPause: (RecordingFile) -> Unit,
     onSeek: (String, Int) -> Unit,
-    onDelete: (RecordingFile) -> Unit
+    onDelete: (RecordingFile) -> Unit,
+    transferActionsEnabled: Boolean,
+    onShare: (RecordingFile) -> Unit,
+    onExport: (RecordingFile) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -1250,7 +1318,10 @@ private fun NightGroupCard(
                     playback = playback.takeIf { it.path == file.path },
                     onPlayPause = { onPlayPause(file) },
                     onSeek = { onSeek(file.path, it) },
-                    onDelete = { onDelete(file) }
+                    onDelete = { onDelete(file) },
+                    transferActionsEnabled = transferActionsEnabled,
+                    onShare = { onShare(file) },
+                    onExport = { onExport(file) }
                 )
 
                 if (index != group.recordings.lastIndex) {
@@ -1267,9 +1338,14 @@ private fun RecordingItemCard(
     playback: PlaybackState?,
     onPlayPause: () -> Unit,
     onSeek: (Int) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    transferActionsEnabled: Boolean,
+    onShare: () -> Unit,
+    onExport: () -> Unit
 ) {
     val context = LocalContext.current
+    var menuExpanded by remember(file.name) { mutableStateOf(false) }
+    val moreDescription = stringResource(R.string.recording_more_actions, file.name)
 
     Column(
         modifier = Modifier.fillMaxWidth().testTag("recording:${file.name}"),
@@ -1316,11 +1392,29 @@ private fun RecordingItemCard(
                     )
                 )
             }
-            TextButton(
-                onClick = onDelete,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(stringResource(R.string.action_delete))
+            Box(Modifier.weight(1f)) {
+                TextButton(
+                    onClick = { menuExpanded = true },
+                    enabled = transferActionsEnabled,
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = moreDescription }
+                ) { Text(stringResource(R.string.action_more)) }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_share)) },
+                        enabled = transferActionsEnabled && file.isFinalized && !file.isCorrupted,
+                        onClick = { menuExpanded = false; onShare() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_export)) },
+                        enabled = transferActionsEnabled && file.isFinalized && !file.isCorrupted,
+                        onClick = { menuExpanded = false; onExport() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_delete)) },
+                        enabled = transferActionsEnabled,
+                        onClick = { menuExpanded = false; onDelete() }
+                    )
+                }
             }
         }
     }

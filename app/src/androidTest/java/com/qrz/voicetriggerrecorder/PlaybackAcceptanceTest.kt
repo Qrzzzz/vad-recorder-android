@@ -88,6 +88,11 @@ class PlaybackAcceptanceTest {
 
     private fun clickClip(index: Int, id: Int) {
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(fixtures[index].name))
+        if (id == R.string.action_delete) {
+            clipAction(index, R.string.action_more).performScrollTo().performClick()
+            compose.onNodeWithText(label(id)).performClick()
+            return
+        }
         clipAction(index, id).performScrollTo().performClick()
     }
 

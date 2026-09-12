@@ -183,4 +183,15 @@
         <item quantity="one">%d second</item>
         <item quantity="other">%d seconds</item>
     </plurals>
+    <string name="action_more">More</string>
+    <string name="recording_more_actions">More actions for %1$s</string>
+    <string name="action_share">Share audio</string>
+    <string name="action_export">Save as file</string>
+    <string name="transfer_working">Preparing audio file…</string>
+    <string name="export_saved">Audio file saved.</string>
+    <string name="transfer_source_unavailable">This recording is missing, incomplete or damaged. The original has not been changed.</string>
+    <string name="export_failed">Could not save the file. The original recording has not been changed.</string>
+    <string name="export_incomplete_document">Could not finish saving. The original is unchanged; an incomplete file may remain in the chosen location.</string>
+    <string name="share_failed">Could not prepare this recording for sharing. The original has not been changed.</string>
+    <string name="transfer_no_app">Could not open the system picker. Please check that a compatible app is available.</string>
 </resources>

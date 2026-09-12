@@ -9,6 +9,10 @@ object RecordingMetadataStore {
     private const val DEFAULT_CHANNELS = 1
     private const val DEFAULT_BITS_PER_SAMPLE = 16
 
+    // A read-only, stricter check at the transfer boundary. Never trusts sidecar flags.
+    fun isReadyForTransfer(wavFile: File): Boolean =
+        WavHeaderReader.read(wavFile, requireCompleteData = true).isFinalized
+
     fun loadOrCreate(wavFile: File): RecordingMetadata {
         val inferred = inferFromWav(wavFile)
         val stored = read(metadataFileFor(wavFile))
@@ -229,7 +233,7 @@ private data class WavInfo(
 }
 
 private object WavHeaderReader {
-    fun read(file: File): WavInfo {
+    fun read(file: File, requireCompleteData: Boolean = false): WavInfo {
         if (!file.exists() || file.length() < 44L) {
             return corrupted()
         }
@@ -237,11 +241,12 @@ private object WavHeaderReader {
         return try {
             RandomAccessFile(file, "r").use { raf ->
                 val riff = raf.readAscii(4)
-                raf.readIntLe()
+                val riffSize = raf.readUnsignedIntLe()
                 val wave = raf.readAscii(4)
                 if (riff != "RIFF" || wave != "WAVE") {
                     return corrupted()
                 }
+                if (requireCompleteData && riffSize + 8L != raf.length()) return corrupted()
 
                 var sampleRate: Int? = null
                 var channels: Int? = null
@@ -254,6 +259,7 @@ private object WavHeaderReader {
                     val chunkId = raf.readAscii(4)
                     val chunkSize = raf.readUnsignedIntLe()
                     val chunkStart = raf.filePointer
+                    if (requireCompleteData && chunkStart + chunkSize > raf.length()) return corrupted()
                     val chunkEnd = (chunkStart + chunkSize).coerceAtMost(raf.length())
 
                     when (chunkId) {
@@ -279,6 +285,10 @@ private object WavHeaderReader {
                 val isPcm = audioFormat == 1
                 val hasRequiredChunks = sampleRate != null && channels != null &&
                     bitsPerSample != null && dataBytes != null
+                if (requireCompleteData && (
+                    (sampleRate ?: 0) <= 0 || (channels ?: 0) <= 0 ||
+                    (bitsPerSample ?: 0) <= 0 || (byteRate ?: 0) <= 0 || (dataBytes ?: 0) <= 0
+                )) return corrupted()
                 val isFinalized = isPcm && hasRequiredChunks
                 WavInfo(
                     sampleRate = sampleRate,

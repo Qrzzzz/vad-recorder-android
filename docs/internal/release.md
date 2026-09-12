@@ -39,9 +39,13 @@ $env:JAVA_HOME = 'D:\Programme Files\Android Studio\jbr'
 
 ```powershell
 .\gradlew.bat -PdeviceAcceptance assembleDebug assembleDebugAndroidTest
-adb install -r app/build/outputs/apk/debug/VADRecorder-v2.3.apk
+adb install -r app/build/outputs/apk/debug/VADRecorder-v2.4.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell am instrument -w -r com.qrz.voicetriggerrecorder.acceptance.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 首次权限测试要求测试包尚未授权麦克风。仅对 `.acceptance` 包重置测试状态，保留正式包的数据。设备需要开启 USB 安装并允许安装提示。权限测试操作实际系统弹窗；存储测试在隔离目录关闭真实文件描述符注入 IOException，不会填满手机磁盘。
+
+2.4 的 `TransferAcceptanceTest` 使用系统文件选择器及真实分享面板，将自动生成的静音 WAV 交给独立测试 APK 的接收 Activity，验证跨 UID 只读授权和文件 SHA-256。该接收 Activity 仅存在于 `androidTest` APK。测试结束清理自己的 UUID 夹具与 Download 目标文件，保留正式包录音。
+
+发布顺序沿用 2.3：完成本地与真机验收并记录结论；将本轮临时构建副本、日志和截图移入回收站；提交并推送功能分支；创建 PR、等待 CI 通过后合并；在合并提交上创建匹配版本的附注标签并推送；等待标签工作流完成；核对 Release 附件、版本、正式包名、签名连续性与 SHA-256；最后清理验证下载和中间分支，回到干净的 `main`。
