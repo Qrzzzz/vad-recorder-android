@@ -2,6 +2,8 @@
 
 Audit date: 2026-07-01
 
+2.3 playback addendum (2026-09-12): `MainScreen` now owns a screen-scoped `PlaybackController` exposing playback state through `StateFlow`. `AndroidPlaybackPlayer` wraps asynchronous `MediaPlayer` preparation and callbacks; `PlaybackProgress` renders the selected clip's seek slider and elapsed/total time. Pause retains the player and position. Switching clips, deleting the selection, or disposing the screen releases it. Leaving Home or receiving `ON_STOP` pauses playback, including a pending asynchronous preparation. The recorder-core audit below remains a historical snapshot.
+
 Scope: document the current implementation only. This audit intentionally does not prescribe a broad rewrite or change runtime behavior.
 
 ## Current Core Chain

@@ -1,7 +1,6 @@
 package com.qrz.voicetriggerrecorder.ui
 
 import android.app.Activity
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.PowerManager
 import androidx.annotation.StringRes
@@ -49,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +65,7 @@ import com.qrz.voicetriggerrecorder.record.RecorderPreferences
 import com.qrz.voicetriggerrecorder.record.RecordingFile
 import com.qrz.voicetriggerrecorder.record.RecordingRepository
 import com.qrz.voicetriggerrecorder.record.SensitivityPreset
+import kotlinx.coroutines.delay
 
 private enum class MainTab(
     @StringRes val titleRes: Int
@@ -95,56 +96,21 @@ fun MainScreen() {
     var resumeTick by remember { mutableIntStateOf(0) }
     var filePendingDelete by remember { mutableStateOf<RecordingFile?>(null) }
     var fileLoadError by remember { mutableStateOf<String?>(null) }
-    var playingPath by remember { mutableStateOf<String?>(null) }
-    var playbackError by remember { mutableStateOf<String?>(null) }
-    val playerHolder = remember { mutableStateOf<MediaPlayer?>(null) }
-
-    fun stopPlayback() {
-        playerHolder.value?.release()
-        playerHolder.value = null
-        playingPath = null
-    }
+    val playbackController = remember { PlaybackController() }
+    val playback by playbackController.state.collectAsState()
 
     fun refreshFiles() {
         runCatching { repository.listRecordings() }
             .onSuccess { latestFiles ->
                 fileLoadError = null
                 files = latestFiles
-                if (playingPath != null && latestFiles.none { it.path == playingPath }) {
-                    playerHolder.value?.release()
-                    playerHolder.value = null
-                    playingPath = null
-                }
+                playbackController.retainFiles(latestFiles.map { it.path })
             }
             .onFailure {
                 files = emptyList()
                 fileLoadError = context.getString(R.string.error_recordings_load_failed)
-                stopPlayback()
+                playbackController.clear()
             }
-    }
-
-    fun playOrStop(file: RecordingFile) {
-        if (playingPath == file.path) {
-            stopPlayback()
-            return
-        }
-
-        stopPlayback()
-        playbackError = null
-
-        try {
-            val player = MediaPlayer().apply {
-                setDataSource(file.path)
-                setOnCompletionListener { stopPlayback() }
-                prepare()
-                start()
-            }
-            playerHolder.value = player
-            playingPath = file.path
-        } catch (e: Exception) {
-            stopPlayback()
-            playbackError = e.message ?: context.getString(R.string.playback_failed_fallback)
-        }
     }
 
     fun saveAutoStop(hours: Int) {
@@ -194,14 +160,23 @@ fun MainScreen() {
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose { stopPlayback() }
+    DisposableEffect(playbackController) {
+        onDispose { playbackController.clear() }
+    }
+
+    LaunchedEffect(playback.path, playback.isPlaying) {
+        while (playbackController.state.value.isPlaying) {
+            playbackController.updatePosition()
+            delay(200)
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 resumeTick++
+            } else if (event == Lifecycle.Event.ON_STOP) {
+                playbackController.pause()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -266,7 +241,10 @@ fun MainScreen() {
                 MainTab.entries.forEach { tab ->
                     Tab(
                         selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
+                        onClick = {
+                            if (tab != MainTab.HOME) playbackController.pause()
+                            selectedTab = tab
+                        },
                         text = { Text(stringResource(tab.titleRes)) }
                     )
                 }
@@ -291,8 +269,7 @@ fun MainScreen() {
                     batteryOptimizationEnabled = batteryOptimizationEnabled,
                     latestNightGroup = latestNightGroup,
                     nightGroups = nightGroups,
-                    playingPath = playingPath,
-                    playbackError = playbackError,
+                    playback = playback,
                     readinessNeedsAttention = readinessNeedsAttention,
                     onPrimaryAction = {
                         when {
@@ -306,9 +283,13 @@ fun MainScreen() {
                         }
                     },
                     onRefresh = { refreshFiles() },
-                    onPlayPause = { playOrStop(it) },
+                    onPlayPause = { playbackController.toggle(it.path) },
+                    onSeek = { path, position -> playbackController.seekTo(path, position) },
                     onDelete = { filePendingDelete = it },
-                    onOpenSettingsTab = { selectedTab = MainTab.SETTINGS }
+                    onOpenSettingsTab = {
+                        playbackController.pause()
+                        selectedTab = MainTab.SETTINGS
+                    }
                 )
             }
 
@@ -363,8 +344,8 @@ fun MainScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (playingPath == file.path) {
-                            stopPlayback()
+                        if (playback.path == file.path) {
+                            playbackController.clear()
                         }
                         repository.deleteRecording(file.name)
                         refreshFiles()
@@ -398,12 +379,12 @@ private fun HomeTabContent(
     batteryOptimizationEnabled: Boolean,
     latestNightGroup: NightRecordingGroup?,
     nightGroups: List<NightRecordingGroup>,
-    playingPath: String?,
-    playbackError: String?,
+    playback: PlaybackState,
     readinessNeedsAttention: Boolean,
     onPrimaryAction: () -> Unit,
     onRefresh: () -> Unit,
     onPlayPause: (RecordingFile) -> Unit,
+    onSeek: (String, Int) -> Unit,
     onDelete: (RecordingFile) -> Unit,
     onOpenSettingsTab: () -> Unit
 ) {
@@ -500,11 +481,11 @@ private fun HomeTabContent(
             )
         }
 
-        playbackError?.let { message ->
+        if (playback.hasError) {
             item {
                 TipCard(
                     title = stringResource(R.string.tip_playback_failed_title),
-                    body = message
+                    body = stringResource(R.string.playback_failed_fallback)
                 )
             }
         }
@@ -530,8 +511,9 @@ private fun HomeTabContent(
             ) { group ->
                 NightGroupCard(
                     group = group,
-                    playingPath = playingPath,
+                    playback = playback,
                     onPlayPause = onPlayPause,
+                    onSeek = onSeek,
                     onDelete = onDelete
                 )
             }
@@ -1237,8 +1219,9 @@ private fun EmptyNightSummaryCard() {
 @Composable
 private fun NightGroupCard(
     group: NightRecordingGroup,
-    playingPath: String?,
+    playback: PlaybackState,
     onPlayPause: (RecordingFile) -> Unit,
+    onSeek: (String, Int) -> Unit,
     onDelete: (RecordingFile) -> Unit
 ) {
     val context = LocalContext.current
@@ -1264,8 +1247,9 @@ private fun NightGroupCard(
             group.recordings.forEachIndexed { index, file ->
                 RecordingItemCard(
                     file = file,
-                    isPlaying = playingPath == file.path,
+                    playback = playback.takeIf { it.path == file.path },
                     onPlayPause = { onPlayPause(file) },
+                    onSeek = { onSeek(file.path, it) },
                     onDelete = { onDelete(file) }
                 )
 
@@ -1280,14 +1264,15 @@ private fun NightGroupCard(
 @Composable
 private fun RecordingItemCard(
     file: RecordingFile,
-    isPlaying: Boolean,
+    playback: PlaybackState?,
     onPlayPause: () -> Unit,
+    onSeek: (Int) -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag("recording:${file.name}"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
@@ -1306,20 +1291,29 @@ private fun RecordingItemCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        if (playback != null) {
+            PlaybackProgress(playback = playback, onSeek = onSeek)
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedButton(
                 onClick = onPlayPause,
+                enabled = playback?.isLoading != true,
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    if (isPlaying) {
-                        stringResource(R.string.action_stop_playback)
-                    } else {
-                        stringResource(R.string.action_play)
-                    }
+                    stringResource(
+                        when {
+                            playback?.isLoading == true -> R.string.playback_loading
+                            playback?.isPlaying == true -> R.string.action_pause_playback
+                            playback?.isComplete == true -> R.string.action_replay
+                            playback != null && playback.positionMs > 0 -> R.string.action_resume_playback
+                            else -> R.string.action_play
+                        }
+                    )
                 )
             }
             TextButton(
