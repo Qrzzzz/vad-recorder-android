@@ -44,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -81,7 +82,7 @@ fun MainScreen() {
     val preferences = remember(context) { RecorderPreferences(context) }
     var selectedTab by remember { mutableStateOf(MainTab.HOME) }
     var files by remember { mutableStateOf<List<RecordingFile>>(emptyList()) }
-    var permissionDeniedPermanently by remember { mutableStateOf(false) }
+    var permissionDeniedPermanently by rememberSaveable { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf(preferences.loadSensitivityPreset()) }
     var selectedLanguage by remember { mutableStateOf(preferences.loadAppLanguage()) }
     var selectedNightMode by remember { mutableStateOf(preferences.loadAppNightMode()) }
@@ -222,9 +223,13 @@ fun MainScreen() {
             context,
             android.Manifest.permission.RECORD_AUDIO
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        permissionDeniedPermanently = !audioGranted &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-            activity?.shouldShowRequestPermissionRationale(android.Manifest.permission.RECORD_AUDIO) == false
+        // Only a completed request can establish permanent denial. On first launch,
+        // rationale=false also means that permission has never been requested.
+        permissionDeniedPermanently = retainPermanentDenial(
+            permissionDeniedPermanently,
+            audioGranted,
+            activity?.shouldShowRequestPermissionRationale(android.Manifest.permission.RECORD_AUDIO) == true
+        )
     }
 
     val audioPermissionGranted = ContextCompat.checkSelfPermission(

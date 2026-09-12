@@ -19,7 +19,7 @@
 命令行构建：
 
 ```powershell
-.\gradlew.bat testDebugUnitTest assembleDebug
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
 
 如果命令行提示 `JAVA_HOME` 未设置，请直接使用 Android Studio 自带的 JBR/JDK，或先在当前终端设置好 JDK 路径。
@@ -27,14 +27,10 @@
 ## 安装
 
 ```powershell
-adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.1.apk
+adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.2.apk
 ```
 
-如果设备上已有同包名但签名不同的版本，先卸载：
-
-```powershell
-adb uninstall com.qrz.voicetriggerrecorder
-```
+升级时须使用与已安装版本相同的签名。签名不一致时先核对构建使用的密钥；卸载会清除应用录音，不应作为默认升级步骤。
 
 ## 使用
 
@@ -64,7 +60,7 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 - 人声检测：`VadEngine` 抽象，当前实现为 `RuleBasedVadEngine`，保留 `SimpleVoiceActivityDetector` 兼容包装。
 - 环境校准：监听开始后隐藏校准环境噪声底，按灵敏度预设映射到底层阈值。
 - 状态机：`RecordingStateMachine` 使用明确关闭原因收尾，并过滤短促误触发。
-- 文件安全：先写 `.wav.part`，finalize 成功后再移动为 `.wav`，启动时可清理陈旧 partial 文件。
+- 文件安全：文件名包含时间戳与 UUID，独占创建 `.wav.part`，finalize 成功后以禁止覆盖的移动保存为 `.wav`；写入或提交失败会停止监听并显示错误。
 - 元数据：每个新 WAV 搭配 JSON sidecar，记录时间、时长、大小、采样率、关闭原因、VAD 引擎、finalize 状态等。
 - UI：Jetpack Compose + Material 3，外观通过 AppCompat 原生夜间模式跟随系统或固定浅色/深色。
 - 后台执行：`foregroundServiceType="microphone"`。
@@ -91,3 +87,7 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 ## 近期更新
 
 详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+## 版本发布与真机验收
+
+发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。本次验证结果见 [2.2 验收记录](./docs/internal/v2.2-validation.md)。

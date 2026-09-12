@@ -66,7 +66,13 @@ class RecordingRepositoryTest {
             vadEngineName = "TestVad"
         )
 
+        val sidecar = File(dir, "${wav.name}.json")
+        val before = sidecar.readText()
+        assertTrue(wav.setLastModified(9_000_000L))
         val recording = repository.listRecordings().single()
+        assertEquals(before, sidecar.readText())
+        repository.listRecordings()
+        assertEquals(before, sidecar.readText())
 
         assertEquals(100L, recording.createdAt)
         assertEquals(1_100L, recording.endedAt)
@@ -99,5 +105,29 @@ class RecordingRepositoryTest {
         writer.writeSamples(ShortArray(sampleCount) { 1_000 }, sampleCount)
         assertTrue(writer.closeAndCommit())
         return wav
+    }
+
+    @Test
+    fun missingAndInvalidEndTimesFallBackToWavTime() {
+        val wav = finalizedWav("fallback.wav", 16_000, 16_000)
+        repository.listRecordings()
+        val sidecar = File(dir, "${wav.name}.json")
+        listOf<Long?>(null, -1L, 0L).forEach { endedAt ->
+            val json = org.json.JSONObject(sidecar.readText())
+            json.put("createdAt", 100L)
+            if (endedAt == null) json.remove("endedAt") else json.put("endedAt", endedAt)
+            sidecar.writeText(json.toString())
+            assertEquals(wav.lastModified(), repository.listRecordings().single().endedAt)
+        }
+    }
+
+    @Test
+    fun positiveEndTimeSurvivesWallClockMovingBackwards() {
+        val wav = finalizedWav("clock-change.wav", 16_000, 16_000)
+        RecordingMetadataStore.writeFinalized(
+            wav, 2_000L, 1_000L, 16_000, 1_000L,
+            RecordingCloseReason.ManualStop, "TestVad"
+        )
+        assertEquals(1_000L, repository.listRecordings().single().endedAt)
     }
 }

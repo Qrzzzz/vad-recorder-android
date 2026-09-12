@@ -4,12 +4,15 @@ import android.content.Context
 import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
+import com.qrz.voicetriggerrecorder.R
 import com.qrz.voicetriggerrecorder.ui.RecorderPhase
 import com.qrz.voicetriggerrecorder.ui.RecorderUiStateMutation
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class RecordingStateMachine(
@@ -17,6 +20,7 @@ class RecordingStateMachine(
     private val config: RecorderConfig,
     private val vadEngineName: String = "RuleBasedVadEngine",
     private val clockMs: () -> Long = { SystemClock.elapsedRealtime() },
+    private val wallClockMs: () -> Long = { System.currentTimeMillis() },
     private val applyUiMutation: (RecorderUiStateMutation) -> Unit
 ) {
     companion object {
@@ -44,6 +48,8 @@ class RecordingStateMachine(
     }
 
     private var state = InternalState.LISTENING
+    var hasStorageFailure = false
+        private set
     private var writer: WavFileWriter? = null
     private var currentFile: File? = null
     private var currentFileName: String? = null
@@ -65,15 +71,24 @@ class RecordingStateMachine(
         }
 
     fun onFrame(frame: ShortArray, speech: Boolean) {
-        when (state) {
-            InternalState.LISTENING -> handleListening(frame, speech)
-            InternalState.RECORDING -> handleRecording(frame, speech)
-            InternalState.HANGOVER -> handleHangover(frame, speech)
+        if (hasStorageFailure) return
+        try {
+            when (state) {
+                InternalState.LISTENING -> handleListening(frame, speech)
+                InternalState.RECORDING -> handleRecording(frame, speech)
+                InternalState.HANGOVER -> handleHangover(frame, speech)
+            }
+        } catch (e: IOException) {
+            failStorage(e)
         }
     }
 
     fun closeCurrentFileIfNeeded(reason: RecordingCloseReason = RecordingCloseReason.ServiceStop) {
-        closeWriterAndFinalize(reason)
+        try {
+            closeWriterAndFinalize(reason)
+        } catch (e: IOException) {
+            failStorage(e)
+        }
         preRoll.clear()
         state = InternalState.LISTENING
         startConfirmFrames = 0
@@ -94,11 +109,11 @@ class RecordingStateMachine(
         }
 
         if (startConfirmFrames >= config.startConfirmFrames) {
-            val now = Date()
+            val now = Date(wallClockMs())
             val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(now)
             val dir = recordingsDir(context)
             dir.mkdirs()
-            val fileName = "voice_${dateStr}.wav"
+            val fileName = "voice_${dateStr}_${UUID.randomUUID()}.wav"
             currentFile = File(dir, fileName)
             currentFileName = fileName
             currentStartedAtMs = now.time
@@ -106,7 +121,7 @@ class RecordingStateMachine(
             writer = WavFileWriter(currentFile!!, config.preferredSampleRate)
 
             for (preFrame in preRoll.snapshot()) {
-                writer?.writeSamples(preFrame, preFrame.size)
+                writeFrame(preFrame)
             }
 
             speechFrames = startConfirmFrames
@@ -131,7 +146,7 @@ class RecordingStateMachine(
 
     private fun handleRecording(frame: ShortArray, speech: Boolean) {
         if (speech) {
-            writer?.writeSamples(frame, frame.size)
+            writeFrame(frame)
             speechFrames++
             silenceFrames = 0
             resumeConfirmFrames = 0
@@ -141,7 +156,7 @@ class RecordingStateMachine(
             resumeConfirmFrames = 0
             resumeBuffer.clear()
             if (silenceFrames <= config.tailKeepFrames) {
-                writer?.writeSamples(frame, frame.size)
+                writeFrame(frame)
             }
             state = InternalState.HANGOVER
             Log.i(TAG, "state RECORDING -> HANGOVER")
@@ -163,7 +178,7 @@ class RecordingStateMachine(
 
             if (resumeConfirmFrames >= config.resumeConfirmFrames) {
                 for (pending in resumeBuffer.snapshot()) {
-                    writer?.writeSamples(pending, pending.size)
+                    writeFrame(pending)
                 }
                 speechFrames += resumeConfirmFrames
                 silenceFrames = 0
@@ -189,7 +204,7 @@ class RecordingStateMachine(
             resumeBuffer.clear()
             silenceFrames++
             if (silenceFrames <= config.tailKeepFrames) {
-                writer?.writeSamples(frame, frame.size)
+                writeFrame(frame)
             }
         }
 
@@ -212,12 +227,38 @@ class RecordingStateMachine(
         return elapsedMs >= config.endSilenceMs
     }
 
+    private fun writeFrame(frame: ShortArray) {
+        if (writer?.writeSamples(frame, frame.size) != true) {
+            throw IOException("Could not write recording samples")
+        }
+    }
+
+    private fun failStorage(error: IOException) {
+        Log.e(TAG, "Recording storage failed; stopping capture", error)
+        hasStorageFailure = true
+        writer?.abort()
+        writer = null
+        currentFile = null
+        currentFileName = null
+        preRoll.clear()
+        resumeBuffer.clear()
+        applyUiMutation { current ->
+            current.copy(
+                serviceRunning = false,
+                recorderPhase = RecorderPhase.RECORDER_FAILED,
+                errorMessage = context.getString(R.string.error_recording_storage_failed),
+                currentFileName = null,
+                speechDetected = false,
+                countdownRemainingMs = null
+            )
+        }
+    }
+
     private enum class DiscardReason {
         NoWriter,
         NoAudio,
         TooShortForServiceStop,
-        Destroy,
-        CommitFailed
+        Destroy
     }
 
     private fun closeWriterAndFinalize(reason: RecordingCloseReason) {
@@ -242,7 +283,7 @@ class RecordingStateMachine(
             return
         }
 
-        var discardReason = discardReason(reason, speechDurationMs, speechFrames, audioBytes)
+        val discardReason = discardReason(reason, speechDurationMs, speechFrames, audioBytes)
         val committed = if (f != null && discardReason == null) {
             w.closeAndCommit()
         } else {
@@ -250,11 +291,11 @@ class RecordingStateMachine(
             false
         }
         if (discardReason == null && !committed) {
-            discardReason = DiscardReason.CommitFailed
+            throw IOException("Could not commit recording")
         }
 
         if (f != null && committed) {
-            val endedAtMs = System.currentTimeMillis()
+            val endedAtMs = wallClockMs()
             RecordingMetadataStore.writeFinalized(
                 wavFile = f,
                 createdAt = startedAtMs.takeIf { it > 0L }
@@ -336,6 +377,7 @@ class RecordingStateMachine(
                 null
             }
             RecordingCloseReason.ServiceStop,
+            RecordingCloseReason.StorageError,
             RecordingCloseReason.ReadError -> {
                 if (
                     speechDurationMs >= config.minSpeechMs &&

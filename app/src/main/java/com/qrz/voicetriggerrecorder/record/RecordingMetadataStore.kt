@@ -133,7 +133,7 @@ object RecordingMetadataStore {
             sizeBytes = inferred.sizeBytes,
             sampleRate = sampleRate ?: inferred.sampleRate,
             durationMs = inferred.durationMs ?: durationMs,
-            endedAt = inferred.endedAt,
+            endedAt = endedAt?.takeIf { it > 0L } ?: inferred.endedAt,
             isCorrupted = inferred.isCorrupted,
             isFinalized = inferred.isFinalized
         )

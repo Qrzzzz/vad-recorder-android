@@ -1,6 +1,7 @@
 package com.qrz.voicetriggerrecorder.record
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -80,6 +81,44 @@ class WavFileWriterTest {
         val bytes = ByteArray(length)
         readFully(bytes)
         return String(bytes, Charsets.US_ASCII)
+    }
+
+    @Test
+    fun commitNeverReplacesAnExistingRecordingEvenOnRepeatedClose() {
+        val wavFile = temporaryFolder.newFolder("collision").resolve("clip.wav")
+        val original = byteArrayOf(1, 2, 3, 4)
+        val writer = WavFileWriter(wavFile, 16_000)
+        assertTrue(writer.writeSamples(shortArrayOf(9, 8, 7), 3))
+        wavFile.writeBytes(original) // A target appears while this writer is active.
+        assertFalse(writer.closeAndCommit())
+        assertFalse(writer.closeAndCommit())
+        assertArrayEquals(original, wavFile.readBytes())
+        assertFalse(writer.activeFile.exists())
+    }
+
+    @Test
+    fun writeFailureIsImmediatelyReported() {
+        val wavFile = temporaryFolder.newFolder("write-failure").resolve("clip.wav")
+        val writer = WavFileWriter(wavFile, 16_000)
+        val field = WavFileWriter::class.java.getDeclaredField("raf").apply { isAccessible = true }
+        (field.get(writer) as RandomAccessFile).close()
+        assertFalse(writer.writeSamples(shortArrayOf(1, 2), 2))
+        assertFalse(writer.closeAndCommit())
+        assertFalse(wavFile.exists())
+    }
+
+    @Test(expected = java.io.IOException::class)
+    fun openingAnotherWriterCannotTruncateAnActivePartial() {
+        val wavFile = temporaryFolder.newFolder("partial-collision").resolve("clip.wav")
+        val writer = WavFileWriter(wavFile, 16_000)
+        writer.writeSamples(shortArrayOf(1, 2), 2)
+        val bytes = writer.activeFile.readBytes()
+        try {
+            WavFileWriter(wavFile, 16_000)
+        } finally {
+            assertArrayEquals(bytes, writer.activeFile.readBytes())
+            writer.abort()
+        }
     }
 
     private fun RandomAccessFile.readIntLe(): Int {

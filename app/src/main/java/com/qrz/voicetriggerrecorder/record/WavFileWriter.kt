@@ -1,10 +1,9 @@
 package com.qrz.voicetriggerrecorder.record
 
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 
 class WavFileWriter(
     private val finalFile: File,
@@ -17,22 +16,27 @@ class WavFileWriter(
     private var dataBytes: Long = 0
     private var closed = false
     private var writeFailed = false
+    private var committed = false
 
     init {
         val parent = finalFile.parentFile
         if (parent != null && !parent.exists()) {
             parent.mkdirs()
         }
-        raf = RandomAccessFile(partFile, "rw")
-        raf!!.setLength(0)
-        for (i in 0 until 44) {
-            raf!!.write(0)
+        if (!partFile.createNewFile()) throw IOException("Recording partial already exists")
+        try {
+            raf = RandomAccessFile(partFile, "rw")
+            raf!!.write(ByteArray(44))
+        } catch (e: IOException) {
+            abort()
+            throw e
         }
     }
 
-    fun writeSamples(samples: ShortArray, length: Int) {
-        if (closed || writeFailed || length <= 0) return
-        val raf = this.raf ?: return
+    fun writeSamples(samples: ShortArray, length: Int): Boolean {
+        if (closed || writeFailed) return false
+        if (length <= 0) return true
+        val raf = this.raf ?: return false
         val safeLength = length.coerceAtMost(samples.size)
         try {
             for (i in 0 until safeLength) {
@@ -41,13 +45,15 @@ class WavFileWriter(
                 raf.write((v shr 8) and 0xff)
             }
             dataBytes += (safeLength * 2).toLong()
+            return true
         } catch (_: Exception) {
             writeFailed = true
+            return false
         }
     }
 
     fun closeAndCommit(): Boolean {
-        if (closed) return finalFile.exists()
+        if (closed) return committed
         if (writeFailed) {
             abort()
             return false
@@ -79,16 +85,14 @@ class WavFileWriter(
             writeShortLE(raf, bitsPerSample)
             raf.writeBytes("data")
             writeIntLE(raf, dataBytes.toInt())
-            try {
-                raf.fd.sync()
-            } catch (_: Exception) {
-            }
+            raf.fd.sync()
             finalized = true
         } catch (_: Exception) {
         } finally {
             try {
                 raf.close()
             } catch (_: Exception) {
+                finalized = false
             }
             this.raf = null
         }
@@ -98,12 +102,11 @@ class WavFileWriter(
             return false
         }
 
-        return if (movePartToFinal()) {
-            true
-        } else {
+        committed = movePartToFinal()
+        if (!committed) {
             partFile.delete()
-            false
         }
+        return committed
     }
 
     fun abort(): Boolean {
@@ -122,24 +125,10 @@ class WavFileWriter(
 
     private fun movePartToFinal(): Boolean {
         return try {
-            Files.move(
-                partFile.toPath(),
-                finalFile.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
-            )
+            // ATOMIC_MOVE may replace an existing target even without REPLACE_EXISTING.
+            // The default move contract rejects an existing destination.
+            Files.move(partFile.toPath(), finalFile.toPath())
             true
-        } catch (_: AtomicMoveNotSupportedException) {
-            try {
-                Files.move(
-                    partFile.toPath(),
-                    finalFile.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING
-                )
-                true
-            } catch (_: Exception) {
-                false
-            }
         } catch (_: Exception) {
             false
         }

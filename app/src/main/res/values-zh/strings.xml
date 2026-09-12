@@ -155,6 +155,7 @@
     <string name="recorder_state_recorder_failed">录音器失败</string>
 
     <string name="error_audio_reads_failed">多次读取音频失败。</string>
+    <string name="error_recording_storage_failed">录音保存失败，已停止监听。请检查可用存储空间后重试。</string>
     <string name="error_microphone_init_failed">无法初始化麦克风。请检查权限，或关闭其他正在占用麦克风的应用。</string>
     <string name="error_recordings_load_failed">这次没能加载已保存录音。稍后可再刷新，或等存储可用后重新打开应用。</string>
 

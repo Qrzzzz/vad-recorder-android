@@ -1,6 +1,9 @@
 package com.qrz.voicetriggerrecorder.record
 
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -73,6 +76,11 @@ class AudioCaptureEngine(
                     val vadResult = vad.isSpeech(frame, config.sampleRate)
                     val speech = vadResult.isSpeech
                     stateMachine.onFrame(frame, speech)
+                    if (stateMachine.hasStorageFailure) {
+                        requestedCloseReason = RecordingCloseReason.StorageError
+                        running = false
+                        break
+                    }
                     val countdownMs = stateMachine.countdownRemainingMs
                     val countdownSeconds = countdownMs?.let {
                         ((it + 999L) / 1000L).coerceAtLeast(0L)
@@ -117,9 +125,11 @@ class AudioCaptureEngine(
                 }
             }
 
-            requestedCloseReason
         } finally {
             stateMachine.closeCurrentFileIfNeeded(requestedCloseReason)
+            if (stateMachine.hasStorageFailure) {
+                requestedCloseReason = RecordingCloseReason.StorageError
+            }
             releaseAudioResources()
             applyUiMutation { current ->
                 current.copy(
@@ -128,6 +138,7 @@ class AudioCaptureEngine(
                 )
             }
         }
+        requestedCloseReason
     }
 
     fun close(reason: RecordingCloseReason) {
@@ -158,6 +169,11 @@ class AudioCaptureEngine(
     }
 
     private fun createAudioRecordOrThrow(): AudioConfig {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            throw SecurityException(context.getString(R.string.error_microphone_init_failed))
+        }
         val candidates = listOf(
             Triple(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO),
             Triple(MediaRecorder.AudioSource.MIC, 16000, AudioFormat.CHANNEL_IN_MONO),

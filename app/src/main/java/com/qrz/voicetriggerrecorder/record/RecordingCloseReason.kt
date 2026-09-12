@@ -5,5 +5,6 @@ enum class RecordingCloseReason {
     ManualStop,
     ServiceStop,
     ReadError,
+    StorageError,
     Destroy
 }
