@@ -38,3 +38,17 @@ adb shell rm -f /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/vo
 - Let auto-stop end a session and confirm any active valid clip is saved.
 - Change Appearance to Follow system, Light, and Dark; confirm the screen recreates cleanly, the selected chip persists after reopening the app, and the launch background/system bars match the selected mode.
 - With Appearance set to Follow system, toggle Android's system dark theme and confirm the app follows the native system setting.
+
+## Playback 2.3
+
+Use the independent `.acceptance` package and disposable WAV fixtures for automated playback tests; do not clear the production package or its recordings.
+
+- Play a legacy WAV without sidecar metadata; only the selected clip expands its slider and elapsed/total time.
+- Pause midway, wait, and resume: position stays fixed while paused and continues from that point.
+- Drag the slider while playing and paused; confirm the position follows the final drag target without jumping back to the pre-seek position. Also exercise the accessibility SetProgress action.
+- Seek near the end, let playback finish, and replay from the beginning.
+- Switch to a different clip: the previous player closes and only the new clip plays.
+- Delete an active or paused selected clip: player controls disappear and WAV/sidecar are removed together.
+- Switch to Settings or send the app to the background: playback pauses. Return to the same screen instance and resume manually.
+- Recreate or close the activity: playback resources are released and no stale active controls remain.
+- Verify Chinese/English, light/dark appearance, readable duration labels, and the slider's accessibility label and state description.

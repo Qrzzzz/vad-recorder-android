@@ -17,7 +17,7 @@
     <string name="section_last_night_title">昨夜摘要</string>
     <string name="section_last_night_subtitle">查看昨晚捕获了多少片段、总时长，以及最后一条出现的时间。</string>
     <string name="section_night_recordings_title">夜间录音</string>
-    <string name="section_night_recordings_subtitle">可以直接播放，也可以删除明显的误触发片段。</string>
+    <string name="section_night_recordings_subtitle">播放录音时可以暂停、续播或拖动进度，也可以删除不需要的片段。</string>
     <string name="tip_playback_failed_title">播放失败</string>
     <string name="playback_failed_fallback">播放失败，请重试。</string>
     <string name="empty_clips_message">暂时还没有录音。开始监听后，把手机放在床边，检测到人声时应用会自动保存片段。</string>
@@ -123,8 +123,13 @@
     <string name="recording_clip_at">%1$s 的片段</string>
     <string name="night_of">%1$s 夜间</string>
 
-    <string name="action_stop_playback">停止播放</string>
     <string name="action_play">播放</string>
+    <string name="action_pause_playback">暂停</string>
+    <string name="action_resume_playback">继续播放</string>
+    <string name="action_replay">重新播放</string>
+    <string name="playback_loading">正在加载…</string>
+    <string name="playback_seek">播放进度</string>
+    <string name="playback_time">已播放 %1$s / 共 %2$s</string>
 
     <string name="duration_unknown">时长未知</string>
     <string name="duration_minutes_seconds">%1$d分 %2$d秒</string>

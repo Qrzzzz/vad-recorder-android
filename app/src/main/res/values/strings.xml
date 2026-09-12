@@ -17,7 +17,7 @@
     <string name="section_last_night_title">Last night summary</string>
     <string name="section_last_night_subtitle">See how many clips were captured, how long they were, and how late the last one happened.</string>
     <string name="section_night_recordings_title">Night recordings</string>
-    <string name="section_night_recordings_subtitle">You can play clips right away and delete obvious false triggers.</string>
+    <string name="section_night_recordings_subtitle">Play, pause, or seek within a clip. Delete clips you do not need.</string>
     <string name="tip_playback_failed_title">Playback failed</string>
     <string name="playback_failed_fallback">Playback failed. Please try again.</string>
     <string name="empty_clips_message">No clips yet. Start listening, place the phone near the bed, and the app will save clips when it hears voice.</string>
@@ -123,8 +123,13 @@
     <string name="recording_clip_at">Clip at %1$s</string>
     <string name="night_of">Night of %1$s</string>
 
-    <string name="action_stop_playback">Stop playback</string>
     <string name="action_play">Play</string>
+    <string name="action_pause_playback">Pause</string>
+    <string name="action_resume_playback">Resume</string>
+    <string name="action_replay">Replay</string>
+    <string name="playback_loading">Loading…</string>
+    <string name="playback_seek">Playback position</string>
+    <string name="playback_time">Played %1$s / Total %2$s</string>
 
     <string name="duration_unknown">Unknown duration</string>
     <string name="duration_minutes_seconds">%1$dm %2$ds</string>
