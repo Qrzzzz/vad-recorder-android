@@ -135,7 +135,7 @@ class RecordForegroundService : Service() {
                 Log.i(TAG, "Engine loop exited reason=$closeReason")
             }
 
-            if (closeReason == RecordingCloseReason.ReadError) {
+            if (closeReason == RecordingCloseReason.ReadError || closeReason == RecordingCloseReason.StorageError) {
                 finishStoppedService(preserveFailureState = true)
             }
         }
@@ -156,8 +156,11 @@ class RecordForegroundService : Service() {
             before.errorMessage != after.errorMessage
         ) {
             scope.launch(Dispatchers.Main.immediate) {
-                createNotificationChannel()
-                startAsForeground()
+                // A queued refresh must not restart foreground capture after a failure/stop.
+                if (foregroundShown && !destroyInProgress && uiState.value.serviceRunning) {
+                    createNotificationChannel()
+                    startAsForeground()
+                }
             }
         }
     }
@@ -166,7 +169,7 @@ class RecordForegroundService : Service() {
         Log.i(TAG, "Stopping service reason=$reason")
         scope.launch {
             closeEngine(reason)
-            finishStoppedService(preserveFailureState = false)
+            finishStoppedService(preserveFailureState = uiState.value.errorMessage != null)
         }
     }
 

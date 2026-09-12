@@ -155,6 +155,7 @@
     <string name="recorder_state_recorder_failed">Recorder failed</string>
 
     <string name="error_audio_reads_failed">Audio reads failed repeatedly.</string>
+    <string name="error_recording_storage_failed">Could not save the recording. Listening has stopped. Check available storage, then try again.</string>
     <string name="error_microphone_init_failed">Could not initialize the microphone. Check permission or close any other app that is using it.</string>
     <string name="error_recordings_load_failed">Saved clips could not be loaded this time. Refresh later or reopen the app after storage becomes available.</string>
 

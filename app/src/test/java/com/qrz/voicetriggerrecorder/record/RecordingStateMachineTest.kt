@@ -4,6 +4,10 @@ import android.content.Context
 import android.os.Environment
 import androidx.test.core.app.ApplicationProvider
 import com.qrz.voicetriggerrecorder.ui.RecorderUiState
+import com.qrz.voicetriggerrecorder.ui.RecorderPhase
+import com.qrz.voicetriggerrecorder.R
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -15,7 +19,7 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [28])
 class RecordingStateMachineTest {
     private lateinit var context: Context
     private lateinit var dir: File
@@ -242,6 +246,85 @@ class RecordingStateMachineTest {
             clockMs = { fakeClockMs },
             applyUiMutation = { mutation -> uiState = mutation(uiState) }
         )
+    }
+
+    @Test
+    fun writeFailureStopsRecordingAndSurvivesFurtherFramesAndStop() {
+        val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
+        sendSpeech(machine, 45)
+        val writer = RecordingStateMachine::class.java.getDeclaredField("writer")
+            .apply { isAccessible = true }.get(machine) as WavFileWriter
+        val handle = WavFileWriter::class.java.getDeclaredField("raf")
+            .apply { isAccessible = true }.get(writer) as java.io.RandomAccessFile
+        handle.close()
+        sendSpeech(machine, 1)
+        assertStorageFailure(machine)
+        sendSpeech(machine, 10)
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ManualStop)
+        assertStorageFailure(machine)
+        assertTrue(wavFiles().isEmpty())
+        assertTrue(partFiles().isEmpty())
+    }
+
+    @Test
+    fun commitFailureKeepsExistingPayloadAndReportsStorageError() {
+        val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
+        sendSpeech(machine, 45)
+        val target = File(dir, uiState.currentFileName!!)
+        val existing = byteArrayOf(8, 7, 6)
+        target.writeBytes(existing)
+        machine.closeCurrentFileIfNeeded(RecordingCloseReason.ManualStop)
+        assertStorageFailure(machine)
+        assertArrayEquals(existing, target.readBytes())
+        assertFalse(File(dir, "${target.name}.json").exists())
+        assertTrue(partFiles().isEmpty())
+    }
+
+    @Test
+    fun sameTimestampSegmentsKeepDistinctAudioAndMetadata() {
+        val names = mutableListOf<String>()
+        listOf<Short>(1_000, 2_000).forEach { amplitude ->
+            val machine = RecordingStateMachine(
+                context = context,
+                config = RecorderConfig(),
+                wallClockMs = { 1_700_000_000_000L },
+                applyUiMutation = { uiState = it(uiState) }
+            )
+            repeat(6) { machine.onFrame(ShortArray(320) { amplitude }, true) }
+            machine.closeCurrentFileIfNeeded(RecordingCloseReason.ManualStop)
+            names += uiState.lastSavedFileName!!
+        }
+        assertEquals(2, wavFiles().size)
+        assertNotEquals(names[0], names[1])
+        names.forEachIndexed { index, name ->
+            val wav = File(dir, name)
+            val metadata = RecordingMetadataStore.loadOrCreate(wav)
+            assertEquals(name, metadata.fileName)
+            assertEquals(name.substringBeforeLast('.'), metadata.id)
+            assertEquals(1_700_000_000_000L, metadata.createdAt)
+            java.io.RandomAccessFile(wav, "r").use { raf ->
+                raf.seek(44)
+                assertEquals((index + 1) * 1_000, raf.read() or (raf.read() shl 8))
+            }
+        }
+    }
+
+    private fun assertStorageFailure(machine: RecordingStateMachine) {
+        assertTrue(machine.hasStorageFailure)
+        assertFalse(uiState.serviceRunning)
+        assertEquals(RecorderPhase.RECORDER_FAILED, uiState.recorderPhase)
+        assertEquals(context.getString(R.string.error_recording_storage_failed), uiState.errorMessage)
+        assertEquals(0, uiState.savedCount)
+    }
+
+    @Test
+    fun failureToCreatePartialStopsBeforeClaimingRecording() {
+        assertTrue(dir.delete())
+        dir.writeText("directory unavailable")
+        val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
+        sendSpeech(machine, 6)
+        assertStorageFailure(machine)
+        assertEquals("directory unavailable", dir.readText())
     }
 
     private fun sendSpeech(machine: RecordingStateMachine, count: Int) {
