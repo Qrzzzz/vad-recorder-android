@@ -6,5 +6,6 @@ enum class RecordingCloseReason {
     ServiceStop,
     ReadError,
     StorageError,
-    Destroy
+    Destroy,
+    Recovered
 }

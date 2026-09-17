@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qrz.voicetriggerrecorder.record.DeleteOutcome
 import com.qrz.voicetriggerrecorder.record.RecordingFile
+import com.qrz.voicetriggerrecorder.record.RecoveryResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,13 +18,17 @@ data class RecordingHistoryState(
     val loading: Boolean = false,
     val loadFailed: Boolean = false,
     val deleting: Boolean = false,
-    val deleteError: HistoryDeleteError? = null
+    val deleteError: HistoryDeleteError? = null,
+    val recoveryResults: List<RecoveryResult> = emptyList(),
+    val recoveryCleanupFailed: Boolean = false
 )
 
 /** All requests enter on Main; repository operations are main-safe. */
 class RecordingHistoryViewModel(
     private val scan: suspend () -> List<RecordingFile>,
-    private val remove: suspend (String) -> DeleteOutcome
+    private val remove: suspend (String) -> DeleteOutcome,
+    private val recoveryResults: () -> List<RecoveryResult> = { emptyList() },
+    private val clearRemnants: suspend (List<String>) -> Unit = {}
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(RecordingHistoryState())
     val state = mutableState.asStateFlow()
@@ -45,7 +50,8 @@ class RecordingHistoryViewModel(
             try {
                 val files = scan()
                 if (request == generation) {
-                    mutableState.value = state.value.copy(files = files, loading = false, loadFailed = false)
+                    mutableState.value = state.value.copy(files = files, loading = false, loadFailed = false,
+                        recoveryResults = recoveryResults())
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -83,6 +89,25 @@ class RecordingHistoryViewModel(
 
     fun dismissDeleteError() {
         mutableState.value = state.value.copy(deleteError = null)
+    }
+
+    fun clearRecoveryRemnants() {
+        if (state.value.deleting) return
+        val paths = state.value.recoveryResults.filter {
+            it.outcome != com.qrz.voicetriggerrecorder.record.RecoveryOutcome.RECOVERED
+        }.map { it.path }
+        invalidateScan()
+        mutableState.value = state.value.copy(deleting = true, loading = false, recoveryCleanupFailed = false)
+        viewModelScope.launch {
+            try {
+                clearRemnants(paths)
+                mutableState.value = state.value.copy(deleting = false)
+                refresh()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                mutableState.value = state.value.copy(deleting = false, recoveryCleanupFailed = true)
+            }
+        }
     }
 
     override fun onCleared() {

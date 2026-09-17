@@ -103,7 +103,7 @@ class WavFileWriterTest {
     }
 
     @Test
-    fun closeAndCommitAfterWriteFailureDeletesPartWithoutCreatingWav() {
+    fun closeAndCommitAfterWriteFailureFinalizesAlreadyWrittenSamples() {
         val wavFile = temporaryFolder.newFolder("recordings").resolve("clip.wav")
         val writer = WavFileWriter(wavFile, sampleRate = 16_000)
         writer.writeSamples(shortArrayOf(1, 2, 3), 3)
@@ -112,10 +112,10 @@ class WavFileWriterTest {
             setBoolean(writer, true)
         }
 
-        assertFalse(writer.closeAndCommit())
+        assertTrue(writer.closeAndCommit())
 
         assertFalse(writer.activeFile.exists())
-        assertFalse(wavFile.exists())
+        assertTrue(wavFile.exists())
     }
 
     private fun RandomAccessFile.readAscii(length: Int): String {
@@ -134,7 +134,7 @@ class WavFileWriterTest {
         assertFalse(writer.closeAndCommit())
         assertFalse(writer.closeAndCommit())
         assertArrayEquals(original, wavFile.readBytes())
-        assertFalse(writer.activeFile.exists())
+        assertTrue(writer.activeFile.exists())
     }
 
     @Test
@@ -146,6 +146,21 @@ class WavFileWriterTest {
         assertFalse(writer.writeSamples(shortArrayOf(1, 2), 2))
         assertFalse(writer.closeAndCommit())
         assertFalse(wavFile.exists())
+    }
+
+    @Test fun partialFirstWriteUsesDiskLengthInsteadOfSuccessfulWriteCounter() {
+        val wavFile = temporaryFolder.newFolder("partial-first-write").resolve("clip.wav")
+        val writer = WavFileWriter(wavFile, 44100)
+        val field = WavFileWriter::class.java.getDeclaredField("raf").apply { isAccessible = true }
+        (field.get(writer) as RandomAccessFile).write(byteArrayOf(7, 0, 9))
+        writer.javaClass.getDeclaredField("writeFailed").apply {
+            isAccessible = true
+            setBoolean(writer, true)
+        }
+        assertEquals(0L, writer.totalBytes)
+        assertTrue(writer.closeAndCommit())
+        assertEquals(46L, wavFile.length())
+        assertArrayEquals(byteArrayOf(7, 0), wavFile.readBytes().drop(44).toByteArray())
     }
 
     @Test(expected = java.io.IOException::class)

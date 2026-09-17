@@ -190,7 +190,7 @@ class RecordingStateMachineTest {
     }
 
     @Test
-    fun destroyRemovesActivePartialFile() {
+    fun destroyFinalizesActivePartialEvenBelowNormalStopThreshold() {
         val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 100)
 
         sendSpeech(machine, 2)
@@ -198,12 +198,13 @@ class RecordingStateMachineTest {
 
         machine.closeCurrentFileIfNeeded(RecordingCloseReason.Destroy)
 
-        assertEquals(emptyList<File>(), wavFiles())
+        assertEquals(1, wavFiles().size)
+        assertEquals("Destroy", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
         assertEquals(emptyList<File>(), partFiles())
     }
 
     @Test
-    fun cleanupStalePartFilesDeletesOldPartialsOnly() {
+    fun recoveryKeepsUnknownPartialsRegardlessOfAge() {
         val oldPart = File(dir, "old.wav.part").apply {
             writeBytes(byteArrayOf(1, 2, 3))
             setLastModified(1_000L)
@@ -213,14 +214,10 @@ class RecordingStateMachineTest {
             setLastModified(10_000L)
         }
 
-        val deleted = WavFileWriter.cleanupStalePartFiles(
-            directory = dir,
-            olderThanMs = 5_000L,
-            nowMs = 10_000L
-        )
-
-        assertEquals(1, deleted)
-        assertFalse(oldPart.exists())
+        val results = RecordingRecovery.recover(dir)
+        assertEquals(2, results.size)
+        assertTrue(results.all { it.outcome == RecoveryOutcome.UNKNOWN })
+        assertTrue(oldPart.exists())
         assertTrue(freshPart.exists())
     }
 
@@ -263,7 +260,9 @@ class RecordingStateMachineTest {
         machine.closeCurrentFileIfNeeded(RecordingCloseReason.ManualStop)
         assertStorageFailure(machine)
         assertTrue(wavFiles().isEmpty())
-        assertTrue(partFiles().isEmpty())
+        assertEquals(1, partFiles().size)
+        assertEquals(RecoveryOutcome.RECOVERED, RecordingRecovery.recover(dir).single().outcome)
+        assertEquals("Recovered", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
     }
 
     @Test
@@ -277,7 +276,27 @@ class RecordingStateMachineTest {
         assertStorageFailure(machine)
         assertArrayEquals(existing, target.readBytes())
         assertFalse(File(dir, "${target.name}.json").exists())
-        assertTrue(partFiles().isEmpty())
+        assertEquals(1, partFiles().size)
+        assertEquals(RecoveryOutcome.CONFLICT, RecordingRecovery.recover(dir).single().outcome)
+    }
+
+    @Test fun storageFailureSalvagesDiskSamplesEvenBeforeByteCounterAdvances() {
+        val machine = stateMachine(endSilenceMs = 60, minSpeechMs = 800)
+        sendSpeech(machine, 2)
+        val writer = RecordingStateMachine::class.java.getDeclaredField("writer")
+            .apply { isAccessible = true }.get(machine) as WavFileWriter
+        WavFileWriter::class.java.getDeclaredField("dataBytes").apply {
+            isAccessible = true; setLong(writer, 0L)
+        }
+        WavFileWriter::class.java.getDeclaredField("writeFailed").apply {
+            isAccessible = true; setBoolean(writer, true)
+        }
+        sendSpeech(machine, 1)
+        assertTrue(machine.hasStorageFailure)
+        assertEquals(RecorderPhase.RECORDER_FAILED, uiState.recorderPhase)
+        assertEquals(1, uiState.savedCount)
+        assertEquals("StorageError", RecordingMetadataStore.loadOrCreate(wavFiles().single()).closeReason)
+        assertTrue(RecordingMetadataStore.isReadyForTransfer(wavFiles().single()))
     }
 
     @Test

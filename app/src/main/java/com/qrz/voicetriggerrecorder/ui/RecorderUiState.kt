@@ -10,6 +10,8 @@ data class RecorderUiState(
     val savedCount: Int = 0,
     val errorMessage: String? = null,
     val speechDetected: Boolean = false,
+    // null: the platform has not supplied a state (including API 26–28).
+    val inputSilenced: Boolean? = null,
     val countdownRemainingMs: Long? = null,
     val autoStopAtMs: Long? = null
 )

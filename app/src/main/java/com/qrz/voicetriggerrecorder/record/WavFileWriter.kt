@@ -22,17 +22,24 @@ class WavFileWriter(
         private set
 
     init {
-        val parent = finalFile.parentFile
-        if (parent != null && !parent.exists()) {
-            parent.mkdirs()
-        }
-        if (!partFile.createNewFile()) throw IOException("Recording partial already exists")
-        try {
-            raf = RandomAccessFile(partFile, "rw")
-            raf!!.write(ByteArray(44))
-        } catch (e: IOException) {
-            abort()
-            throw e
+        require(sampleRate in 1..384000 && channels in 1..2 && bitsPerSample == 16)
+        synchronized(RecordingRecovery.lock) {
+            val parent = finalFile.parentFile
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs()
+            }
+            if (finalFile.exists() || RecordingRecovery.manifest(finalFile).exists() || !partFile.createNewFile())
+                throw IOException("Recording source already exists")
+            RecordingRecovery.active.add(finalFile.canonicalPath)
+            try {
+                RecordingRecovery.prepare(finalFile, sampleRate, channels, bitsPerSample)
+                raf = RandomAccessFile(partFile, "rw")
+                writeHeader(raf!!, sampleRate, channels, bitsPerSample, 0)
+                raf!!.fd.sync()
+            } catch (e: IOException) {
+                abort()
+                throw e
+            }
         }
     }
 
@@ -62,11 +69,7 @@ class WavFileWriter(
 
     fun closeAndCommit(): Boolean {
         if (closed) return committed
-        if (writeFailed) {
-            abort()
-            return false
-        }
-        if (dataBytes <= 0L) {
+        if (dataBytes <= 0L && !writeFailed) {
             abort()
             return false
         }
@@ -75,24 +78,11 @@ class WavFileWriter(
         var finalized = false
         try {
             closed = true
-            raf.seek(0)
-            val totalDataLen = dataBytes + 36
-            val byteRate = sampleRate * channels * bitsPerSample / 8
-            val blockAlign = channels * bitsPerSample / 8
-
-            raf.writeBytes("RIFF")
-            writeIntLE(raf, totalDataLen.toInt())
-            raf.writeBytes("WAVE")
-            raf.writeBytes("fmt ")
-            writeIntLE(raf, 16)
-            writeShortLE(raf, 1) // PCM = 1
-            writeShortLE(raf, channels)
-            writeIntLE(raf, sampleRate)
-            writeIntLE(raf, byteRate)
-            writeShortLE(raf, blockAlign)
-            writeShortLE(raf, bitsPerSample)
-            raf.writeBytes("data")
-            writeIntLE(raf, dataBytes.toInt())
+            // A failed write may have left a partial sample; retain complete sample frames only.
+            dataBytes = ((raf.length() - 44).coerceAtLeast(0) / (channels * 2)) * (channels * 2)
+            if (dataBytes == 0L) throw IOException("No complete sample frame")
+            raf.setLength(44 + dataBytes)
+            writeHeader(raf, sampleRate, channels, bitsPerSample, dataBytes)
             raf.fd.sync()
             finalized = true
         } catch (_: Exception) {
@@ -106,25 +96,36 @@ class WavFileWriter(
         }
 
         if (!finalized) {
-            partFile.delete()
+            preserveForRecovery()
             return false
         }
 
-        committed = movePartToFinal()
-        if (!committed) {
-            partFile.delete()
+        synchronized(RecordingRecovery.lock) {
+            committed = movePartToFinal()
+            if (committed) RecordingRecovery.manifest(finalFile).delete()
+            RecordingRecovery.active.remove(finalFile.canonicalPath)
         }
         return committed
     }
 
     fun abort(): Boolean {
-        closed = true
-        try {
-            raf?.close()
-        } catch (_: Exception) {
+        synchronized(RecordingRecovery.lock) {
+            closed = true
+            try {
+                raf?.close()
+            } catch (_: Exception) {
+            }
+            raf = null
+            RecordingRecovery.active.remove(finalFile.canonicalPath)
+            return RecordingRecovery.discard(finalFile)
         }
+    }
+
+    fun preserveForRecovery() = synchronized(RecordingRecovery.lock) {
+        closed = true
+        runCatching { raf?.close() }
         raf = null
-        return !partFile.exists() || partFile.delete()
+        RecordingRecovery.active.remove(finalFile.canonicalPath)
     }
 
     val totalBytes: Long get() = dataBytes
@@ -142,36 +143,34 @@ class WavFileWriter(
         }
     }
 
-    private fun writeIntLE(raf: RandomAccessFile, value: Int) {
-        raf.write(value and 0xff)
-        raf.write((value shr 8) and 0xff)
-        raf.write((value shr 16) and 0xff)
-        raf.write((value shr 24) and 0xff)
-    }
-
-    private fun writeShortLE(raf: RandomAccessFile, value: Int) {
-        raf.write(value and 0xff)
-        raf.write((value shr 8) and 0xff)
-    }
-
     companion object {
-        fun cleanupStalePartFiles(
-            directory: File,
-            olderThanMs: Long,
-            nowMs: Long = System.currentTimeMillis()
-        ): Int {
-            if (!directory.exists() || !directory.isDirectory) return 0
+        private fun writeIntLE(raf: RandomAccessFile, value: Int) {
+            raf.write(value and 0xff)
+            raf.write((value shr 8) and 0xff)
+            raf.write((value shr 16) and 0xff)
+            raf.write((value shr 24) and 0xff)
+        }
 
-            var deleted = 0
-            directory.listFiles()
-                ?.filter { it.isFile && it.name.endsWith(".wav.part", ignoreCase = true) }
-                ?.forEach { file ->
-                    val ageMs = nowMs - file.lastModified()
-                    if (ageMs >= olderThanMs && file.delete()) {
-                        deleted++
-                    }
-                }
-            return deleted
+        private fun writeShortLE(raf: RandomAccessFile, value: Int) {
+            raf.write(value and 0xff)
+            raf.write((value shr 8) and 0xff)
+        }
+
+        internal fun writeHeader(raf: RandomAccessFile, rate: Int, channels: Int, bits: Int, bytes: Long) {
+            require(bytes <= 0xffffffffL - 36)
+            raf.seek(0)
+            raf.writeBytes("RIFF")
+            writeIntLE(raf, (bytes + 36).toInt())
+            raf.writeBytes("WAVEfmt ")
+            writeIntLE(raf, 16)
+            writeShortLE(raf, 1)
+            writeShortLE(raf, channels)
+            writeIntLE(raf, rate)
+            writeIntLE(raf, rate * channels * bits / 8)
+            writeShortLE(raf, channels * bits / 8)
+            writeShortLE(raf, bits)
+            raf.writeBytes("data")
+            writeIntLE(raf, bytes.toInt())
         }
     }
 }

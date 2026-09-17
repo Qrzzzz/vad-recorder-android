@@ -279,6 +279,21 @@ fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryV
     val nightGroups = remember(files) { buildNightGroups(files) }
     val latestNightGroup = nightGroups.firstOrNull()
 
+    var confirmRemnantCleanup by remember { mutableStateOf(false) }
+    if (confirmRemnantCleanup) {
+        AlertDialog(
+            onDismissRequest = { confirmRemnantCleanup = false },
+            title = { Text(stringResource(R.string.recovery_clear)) },
+            text = { Text(stringResource(R.string.recovery_clear_confirm)) },
+            confirmButton = { TextButton(onClick = {
+                confirmRemnantCleanup = false
+                history.clearRecoveryRemnants()
+            }) { Text(stringResource(R.string.recovery_clear)) } },
+            dismissButton = { TextButton(onClick = { confirmRemnantCleanup = false }) {
+                Text(stringResource(android.R.string.cancel))
+            } }
+        )
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = {
@@ -325,6 +340,8 @@ fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryV
                     errorMessage = uiState.errorMessage,
                     fileLoadError = fileLoadError,
                     filesLoading = historyState.loading,
+                    historyState = historyState,
+                    onClearRemnants = { confirmRemnantCleanup = true },
                     permissionDeniedPermanently = permissionDeniedPermanently,
                     audioPermissionGranted = audioPermissionGranted,
                     notificationPermissionGranted = notificationPermissionGranted,
@@ -466,6 +483,8 @@ private fun HomeTabContent(
     errorMessage: String?,
     fileLoadError: String?,
     filesLoading: Boolean,
+    historyState: RecordingHistoryState,
+    onClearRemnants: () -> Unit,
     permissionDeniedPermanently: Boolean,
     audioPermissionGranted: Boolean,
     notificationPermissionGranted: Boolean,
@@ -562,6 +581,30 @@ private fun HomeTabContent(
             }
         }
 
+        val remnants = historyState.recoveryResults.filter {
+            it.outcome != com.qrz.voicetriggerrecorder.record.RecoveryOutcome.RECOVERED
+        }
+        if (remnants.isNotEmpty()) {
+            item(key = "recovery-notice", contentType = "recovery") {
+                Card(Modifier.fillMaxWidth().testTag("recovery-notice")) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.recovery_remnants,
+                            remnants.count { it.outcome == com.qrz.voicetriggerrecorder.record.RecoveryOutcome.PENDING },
+                            remnants.count { it.outcome == com.qrz.voicetriggerrecorder.record.RecoveryOutcome.UNKNOWN },
+                            remnants.count { it.outcome == com.qrz.voicetriggerrecorder.record.RecoveryOutcome.EMPTY },
+                            remnants.count { it.outcome == com.qrz.voicetriggerrecorder.record.RecoveryOutcome.CONFLICT }))
+                        if (historyState.recoveryCleanupFailed) {
+                            Text(stringResource(R.string.recovery_cleanup_failed), color = MaterialTheme.colorScheme.error)
+                        }
+                        TextButton(onClick = onClearRemnants,
+                            enabled = !historyState.deleting && !historyState.loading) {
+                            Text(stringResource(R.string.recovery_clear))
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             SectionHeader(
                 title = stringResource(R.string.section_last_night_title),
@@ -640,6 +683,7 @@ private fun HomeTabContent(
 
 @Composable
 private fun ActiveRecordingCard(uiState: RecorderUiState) {
+    if (uiState.inputSilenced == true) return
     if (
         uiState.recorderPhase != RecorderPhase.RECORDING &&
         uiState.recorderPhase != RecorderPhase.WAITING_TO_FINISH
@@ -1380,6 +1424,9 @@ private fun RecordingItemCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        if (file.closeReason in listOf("Recovered", "Destroy", "StorageError", "ReadError")) {
+            Text(stringResource(R.string.recovery_interrupted), style = MaterialTheme.typography.labelMedium)
+        }
         if (file.isCorrupted || !file.isFinalized) {
             Text(stringResource(R.string.recording_incomplete), color = MaterialTheme.colorScheme.error)
         }

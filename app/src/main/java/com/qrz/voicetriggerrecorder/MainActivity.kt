@@ -22,7 +22,8 @@ class MainActivity : AppCompatActivity() {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val repository = RecordingRepository(applicationContext)
-                return RecordingHistoryViewModel(repository::scan, repository::delete) as T
+                return RecordingHistoryViewModel(repository::scan, repository::delete,
+                    { repository.recoveryResults }, repository::clearRemnants) as T
             }
         })[RecordingHistoryViewModel::class.java]
         setContent {

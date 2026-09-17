@@ -12,7 +12,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 class RecordingStateMachine(
     private val context: Context,
@@ -24,15 +23,6 @@ class RecordingStateMachine(
 ) {
     companion object {
         private const val TAG = "VoiceTriggerRecorder"
-        private val DEFAULT_STALE_PART_AGE_MS = TimeUnit.HOURS.toMillis(6)
-
-        fun cleanupStalePartialFiles(
-            context: Context,
-            olderThanMs: Long = DEFAULT_STALE_PART_AGE_MS
-        ): Int {
-            return WavFileWriter.cleanupStalePartFiles(recordingsDir(context), olderThanMs)
-        }
-
         private fun recordingsDir(context: Context): File {
             return RecordingStorage(context).writeDirectory()
         }
@@ -115,13 +105,13 @@ class RecordingStateMachine(
             currentFileName = fileName
             currentStartedAtMs = now.time
 
-            writer = WavFileWriter(currentFile!!, config.preferredSampleRate)
+            writer = WavFileWriter(currentFile!!, config.preferredSampleRate, config.channels, config.bitsPerSample)
+            speechFrames = startConfirmFrames
 
             for (preFrame in preRoll.snapshot()) {
                 writeFrame(preFrame)
             }
 
-            speechFrames = startConfirmFrames
             silenceFrames = 0
             resumeConfirmFrames = 0
             lastConfirmedSpeechAtMs = clockMs()
@@ -233,7 +223,9 @@ class RecordingStateMachine(
     private fun failStorage(error: IOException) {
         Log.e(TAG, "Recording storage failed; stopping capture", error)
         hasStorageFailure = true
-        writer?.abort()
+        // Storage failures retain complete bytes for a later recovery attempt.
+        try { closeWriterAndFinalize(RecordingCloseReason.StorageError) }
+        catch (_: IOException) { writer?.preserveForRecovery() }
         writer = null
         currentFile = null
         currentFileName = null
@@ -254,8 +246,7 @@ class RecordingStateMachine(
     private enum class DiscardReason {
         NoWriter,
         NoAudio,
-        TooShortForServiceStop,
-        Destroy
+        TooShortForServiceStop
     }
 
     private fun closeWriterAndFinalize(reason: RecordingCloseReason) {
@@ -284,7 +275,7 @@ class RecordingStateMachine(
         val committed = if (f != null && discardReason == null) {
             w.closeAndCommit()
         } else {
-            w.abort()
+            if (!w.abort()) throw IOException("Could not discard recording fragment")
             false
         }
         if (discardReason == null && !committed) {
@@ -367,7 +358,9 @@ class RecordingStateMachine(
         speechFrameCount: Int,
         audioBytes: Long
     ): DiscardReason? {
-        if (reason == RecordingCloseReason.Destroy) return DiscardReason.Destroy
+        // A failed write can have reached disk before totalBytes was advanced, including pre-roll.
+        // Let the writer inspect the actual complete samples instead of discarding on its counter.
+        if (reason == RecordingCloseReason.StorageError) return null
         if (audioBytes <= 0L || speechFrameCount <= 0) return DiscardReason.NoAudio
 
         return when (reason) {
@@ -375,7 +368,6 @@ class RecordingStateMachine(
                 null
             }
             RecordingCloseReason.ServiceStop,
-            RecordingCloseReason.StorageError,
             RecordingCloseReason.ReadError -> {
                 if (
                     speechDurationMs >= config.minSpeechMs &&
@@ -386,8 +378,10 @@ class RecordingStateMachine(
                     DiscardReason.TooShortForServiceStop
                 }
             }
-            RecordingCloseReason.ManualStop -> null
-            RecordingCloseReason.Destroy -> DiscardReason.Destroy
+            RecordingCloseReason.ManualStop,
+            RecordingCloseReason.StorageError,
+            RecordingCloseReason.Recovered,
+            RecordingCloseReason.Destroy -> null
         }
     }
 }

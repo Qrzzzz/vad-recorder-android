@@ -38,6 +38,7 @@ internal class AudioCaptureEngine(
 
     internal interface CaptureInput {
         val config: AudioConfig
+        fun observeSilence(listener: (Boolean?) -> Unit) { listener(null) }
         fun start()
         fun read(buffer: ShortArray): Int
         fun stop()
@@ -64,6 +65,7 @@ internal class AudioCaptureEngine(
                 started = true
                 (inputFactory?.invoke() ?: createCaptureInput()).also {
                     input = it
+                    it.observeSilence(::onInputSilenceChanged)
                     it.start()
                 }
             }
@@ -71,7 +73,8 @@ internal class AudioCaptureEngine(
             val vad = VadEngineFactory.create(config.sampleRate, sensitivityPreset)
             stateMachine = RecordingStateMachine(
                 context = context,
-                config = RecorderConfig(preferredSampleRate = config.sampleRate),
+                config = RecorderConfig(preferredSampleRate = config.sampleRate,
+                    channels = config.channels, bitsPerSample = config.bitsPerSample),
                 vadEngineName = vad.javaClass.simpleName,
                 applyUiMutation = applyUiMutation
             )
@@ -145,6 +148,11 @@ internal class AudioCaptureEngine(
                 }
             }
 
+        } catch (error: Exception) {
+            synchronized(lifecycleLock) {
+                if (!closed) requestedCloseReason = RecordingCloseReason.Destroy
+            }
+            throw error
         } finally {
             try {
                 stateMachine?.closeCurrentFileIfNeeded(requestedCloseReason)
@@ -163,7 +171,8 @@ internal class AudioCaptureEngine(
             applyUiMutation { current ->
                 current.copy(
                     speechDetected = false,
-                    countdownRemainingMs = null
+                    countdownRemainingMs = null,
+                    inputSilenced = null
                 )
             }
         }
@@ -184,16 +193,29 @@ internal class AudioCaptureEngine(
         close(RecordingCloseReason.ServiceStop)
     }
 
+    internal fun onInputSilenceChanged(silenced: Boolean?) {
+        synchronized(lifecycleLock) {
+            if (!closed) applyUiMutation { it.copy(inputSilenced = silenced) }
+        }
+    }
+
     private fun createCaptureInput(): CaptureInput {
         val config = createAudioRecordOrThrow()
         val record = checkNotNull(audioRecord)
         return object : CaptureInput {
+            private var detach: (() -> Unit)? = null
             override val config = config
-            override fun start() = record.startRecording()
+            override fun observeSilence(listener: (Boolean?) -> Unit) {
+                detach = InputSilenceMonitor.attach(record, listener)
+            }
+            override fun start() {
+                record.startRecording()
+                InputSilenceMonitor.refresh(record, ::onInputSilenceChanged)
+            }
             override fun read(buffer: ShortArray) = record.read(buffer, 0, buffer.size)
             override fun stop() = record.stop()
             // Native resources are released together with the noise suppressor in finally.
-            override fun release() = Unit
+            override fun release() { detach?.invoke(); detach = null }
         }
     }
 
@@ -248,7 +270,7 @@ internal class AudioCaptureEngine(
                 initNoiseSuppressor(record)
                 val samplesPerFrame = rate * 20 / 1000
                 Log.i(TAG, "AudioRecord initialized: rate=$rate source=$source frame=$samplesPerFrame")
-                return AudioConfig(rate, 1, 16, samplesPerFrame)
+                return AudioConfig(record.sampleRate, record.channelCount, 16, record.sampleRate * 20 / 1000)
             } else {
                 try {
                     record?.release()

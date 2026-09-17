@@ -147,6 +147,9 @@ internal fun formatRecorderState(
     context: android.content.Context,
     uiState: RecorderUiState
 ): String {
+    if (uiState.serviceRunning && uiState.inputSilenced == true) {
+        return context.getString(R.string.input_silenced)
+    }
     return when (uiState.recorderPhase) {
         RecorderPhase.IDLE -> context.getString(R.string.recorder_state_idle)
         RecorderPhase.LISTENING -> context.getString(R.string.recorder_state_listening)
