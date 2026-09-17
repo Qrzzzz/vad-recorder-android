@@ -194,4 +194,5 @@
     <string name="export_incomplete_document">Could not finish saving. The original is unchanged; an incomplete file may remain in the chosen location.</string>
     <string name="share_failed">Could not prepare this recording for sharing. The original has not been changed.</string>
     <string name="transfer_no_app">Could not open the system picker. Please check that a compatible app is available.</string>
+    <string name="playback_stop_listening_first">Stop listening to play</string>
 </resources>

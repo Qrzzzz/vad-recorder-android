@@ -28,7 +28,7 @@
 ## 安装
 
 ```powershell
-adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.4.apk
+adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.4.1.apk
 ```
 
 升级时须使用与已安装版本相同的签名。签名不一致时先核对构建使用的密钥；卸载会清除应用录音，不应作为默认升级步骤。
@@ -95,4 +95,4 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 
 ## 版本发布与真机验收
 
-发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.4 更新内容见 [2.4 更新说明](./docs/releases/2.4.md)，验证结果见 [2.4 验收记录](./docs/internal/v2.4-validation.md)。历史验证见 [2.3 验收记录](./docs/internal/v2.3-validation.md)和 [2.2 验收记录](./docs/internal/v2.2-validation.md)。
+发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.4.1 更新内容见 [2.4.1 更新说明](./docs/releases/2.4.1.md)，验证结果与真机验收边界见 [2.4.1 验证记录](./docs/internal/v2.4.1-validation.md)。2.4 验证见 [2.4 验收记录](./docs/internal/v2.4-validation.md)。历史验证见 [2.3 验收记录](./docs/internal/v2.3-validation.md)和 [2.2 验收记录](./docs/internal/v2.2-validation.md)。

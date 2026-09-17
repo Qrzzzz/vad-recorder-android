@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.qrz.voicetriggerrecorder.MainActivity
@@ -15,6 +16,8 @@ import com.qrz.voicetriggerrecorder.R
 import com.qrz.voicetriggerrecorder.ui.RecorderPhase
 import com.qrz.voicetriggerrecorder.ui.RecorderUiState
 import com.qrz.voicetriggerrecorder.ui.RecorderUiStateMutation
+import com.qrz.voicetriggerrecorder.ui.PlaybackInterlock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class RecordForegroundService : Service() {
@@ -39,9 +43,11 @@ class RecordForegroundService : Service() {
         // Process-local UI bridge only. Real session state lives on the service instance.
         private val _uiState = MutableStateFlow(RecorderUiState())
         val uiState: StateFlow<RecorderUiState> = _uiState.asStateFlow()
+        // A replacement Service must await the destroyed instance's resource/file cleanup.
+        private val retiringJobs = mutableSetOf<Job>()
 
-        private fun applyUiMutation(mutation: RecorderUiStateMutation) {
-            _uiState.value = mutation(_uiState.value)
+        internal fun applyUiMutation(mutation: RecorderUiStateMutation) {
+            _uiState.update(mutation)
         }
 
         fun requestSettingsRefresh(context: android.content.Context) {
@@ -55,12 +61,19 @@ class RecordForegroundService : Service() {
     private var engine: AudioCaptureEngine? = null
     private var engineJob: Job? = null
     private var autoStopJob: Job? = null
-    private var listeningStartedAtMs: Long? = null
+    private var sessionTiming: SessionTiming? = null
+    private var stopping = false
+    private var restartRequested = false
+    internal var elapsedClock: () -> Long = { SystemClock.elapsedRealtime() }
+    internal var wallClock: () -> Long = { System.currentTimeMillis() }
+    internal var engineFactory: (RecorderUiStateMutationSink) -> AudioCaptureEngine = { sink ->
+        AudioCaptureEngine(applicationContext,
+            RecorderPreferences(applicationContext).loadSensitivityPreset(), sink)
+    }
     private var foregroundShown = false
     private var preserveUiStateOnDestroy = false
-    @Volatile
     private var destroyInProgress = false
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
@@ -83,16 +96,19 @@ class RecordForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startServiceSafely() {
+        PlaybackInterlock.shared.block()
+        if (stopping) {
+            restartRequested = true
+            return
+        }
         if (engineJob?.isActive == true || engine != null) {
             Log.i(TAG, "Engine already running, ignoring start")
             return
         }
 
-        val preferences = RecorderPreferences(applicationContext)
-        val sensitivityPreset = preferences.loadSensitivityPreset()
-        RecordingStateMachine.cleanupStalePartialFiles(applicationContext)
-        val captureEngine = AudioCaptureEngine(applicationContext, sensitivityPreset) { mutation ->
-            applySessionUiMutation(mutation)
+        lateinit var captureEngine: AudioCaptureEngine
+        captureEngine = engineFactory { mutation ->
+            applySessionUiMutation(captureEngine, mutation)
         }
 
         try {
@@ -105,7 +121,7 @@ class RecordForegroundService : Service() {
             return
         }
 
-        listeningStartedAtMs = System.currentTimeMillis()
+        sessionTiming = SessionTiming(elapsedClock())
         engine = captureEngine
         preserveUiStateOnDestroy = false
         destroyInProgress = false
@@ -121,29 +137,39 @@ class RecordForegroundService : Service() {
         engineJob = scope.launch {
             var closeReason = RecordingCloseReason.ServiceStop
             try {
+                for (retiring in retiringJobs.toList()) {
+                    retiring.join()
+                    retiringJobs.remove(retiring)
+                }
+                if (engine !== captureEngine || stopping || destroyInProgress) return@launch
+                RecordingStateMachine.cleanupStalePartialFiles(applicationContext)
                 closeReason = captureEngine.start()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                closeReason = RecordingCloseReason.Destroy
-                Log.e(TAG, "Audio capture engine failed", e)
-                handleStartupFailure(e, RecorderPhase.MICROPHONE_SETUP_FAILED)
+                if (engine === captureEngine && !destroyInProgress && !stopping) {
+                    Log.e(TAG, "Audio capture engine failed", e)
+                    handleStartupFailure(e, RecorderPhase.MICROPHONE_SETUP_FAILED)
+                }
                 return@launch
             } finally {
-                if (engine === captureEngine) {
-                    engine = null
-                }
-                engineJob = null
                 Log.i(TAG, "Engine loop exited reason=$closeReason")
             }
 
-            if (closeReason == RecordingCloseReason.ReadError || closeReason == RecordingCloseReason.StorageError) {
-                finishStoppedService(preserveFailureState = true)
+            if (!stopping && !destroyInProgress && engine === captureEngine) {
+                engine = null
+                engineJob = null
+                finishStoppedService(preserveFailureState = uiState.value.errorMessage != null)
             }
         }
     }
 
-    private fun applySessionUiMutation(mutation: RecorderUiStateMutation) {
-        if (destroyInProgress) return
-        applyUiMutationAndRefreshNotification(mutation)
+    internal fun applySessionUiMutation(source: AudioCaptureEngine, mutation: RecorderUiStateMutation) {
+        scope.launch {
+            // Identity is checked at execution time, not when the worker queues the callback.
+            if (destroyInProgress || engine !== source) return@launch
+            applyUiMutationAndRefreshNotification(mutation)
+        }
     }
 
     private fun applyUiMutationAndRefreshNotification(mutation: RecorderUiStateMutation) {
@@ -166,33 +192,30 @@ class RecordForegroundService : Service() {
     }
 
     private fun closeAndStop(reason: RecordingCloseReason) {
-        Log.i(TAG, "Stopping service reason=$reason")
-        scope.launch {
-            closeEngine(reason)
-            finishStoppedService(preserveFailureState = uiState.value.errorMessage != null)
-        }
-    }
-
-    private suspend fun closeEngine(reason: RecordingCloseReason) {
+        // All commands and service state run on Main. Mark STOPPING before yielding.
+        restartRequested = false
+        if (stopping) return
+        stopping = true
         autoStopJob?.cancel()
         autoStopJob = null
-
         val activeEngine = engine
         val activeJob = engineJob
-
-        try {
-            activeEngine?.close(reason)
+        activeEngine?.close(reason)
+        activeJob?.cancel()
+        scope.launch {
             activeJob?.join()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop engine", e)
-        } finally {
-            if (engine === activeEngine) {
-                engine = null
-            }
-            if (engineJob === activeJob) {
-                engineJob = null
-            }
-            listeningStartedAtMs = null
+            if (destroyInProgress || engine !== activeEngine) return@launch
+            engine = null
+            engineJob = null
+            sessionTiming = null
+            val restart = restartRequested
+            restartRequested = false
+            stopping = false
+            finishStoppedService(
+                preserveFailureState = uiState.value.errorMessage != null,
+                requestStopSelf = !restart
+            )
+            if (restart) startServiceSafely()
         }
     }
 
@@ -203,7 +226,7 @@ class RecordForegroundService : Service() {
         preserveUiStateOnDestroy = preserveFailureState
         autoStopJob?.cancel()
         autoStopJob = null
-        listeningStartedAtMs = null
+        sessionTiming = null
 
         if (preserveFailureState) {
             applyUiMutation { current ->
@@ -220,6 +243,7 @@ class RecordForegroundService : Service() {
         }
 
         stopForegroundIfNeeded()
+        PlaybackInterlock.shared.unblock()
         if (requestStopSelf) {
             stopSelf()
         }
@@ -229,6 +253,7 @@ class RecordForegroundService : Service() {
         Log.i(TAG, "Service destroying")
         destroyInProgress = true
         engine?.close(RecordingCloseReason.Destroy)
+        engineJob?.let { retiringJobs += it }
         finishStoppedService(
             preserveFailureState = preserveUiStateOnDestroy,
             requestStopSelf = false
@@ -249,38 +274,33 @@ class RecordForegroundService : Service() {
             return
         }
 
-        val startedAt = listeningStartedAtMs ?: System.currentTimeMillis().also {
-            listeningStartedAtMs = it
-        }
+        if (stopping) return
+        val source = engine ?: return
+        val timing = sessionTiming ?: return
         val autoStopHours = RecorderPreferences(applicationContext).loadAutoStopHours()
-        val autoStopAtMs = if (autoStopHours > 0) {
-            startedAt + autoStopHours * 60L * 60L * 1000L
-        } else {
-            null
-        }
-
         autoStopJob?.cancel()
         autoStopJob = null
-
+        val remainingMs = timing.remainingMs(autoStopHours, elapsedClock())
+        val displayDeadline = remainingMs?.let { wallClock() + it.coerceAtLeast(0L) }
         applyUiMutationAndRefreshNotification { current ->
-            current.copy(autoStopAtMs = autoStopAtMs)
+            current.copy(autoStopAtMs = displayDeadline)
         }
-
-        if (autoStopAtMs == null) {
-            return
-        }
-
-        val remainingMs = autoStopAtMs - System.currentTimeMillis()
+        if (remainingMs == null) return
         if (remainingMs <= 0L) {
-            Log.i(TAG, "Auto-stop deadline already reached, stopping service now")
             closeAndStop(RecordingCloseReason.ServiceStop)
             return
         }
-
         autoStopJob = scope.launch {
-            delay(remainingMs)
-            Log.i(TAG, "Auto-stop deadline reached")
-            closeAndStop(RecordingCloseReason.ServiceStop)
+            // delay uses uptime on Android; recheck elapsed time after sleep/resume.
+            // Short checks bound the awake-time delay following device sleep.
+            while (engine === source && !stopping) {
+                val remaining = timing.remainingMs(autoStopHours, elapsedClock()) ?: return@launch
+                if (remaining <= 0L) {
+                    closeAndStop(RecordingCloseReason.ServiceStop)
+                    return@launch
+                }
+                delay(minOf(remaining, 1_000L))
+            }
         }
     }
 
@@ -301,7 +321,7 @@ class RecordForegroundService : Service() {
         engine?.close(RecordingCloseReason.Destroy)
         engine = null
         engineJob = null
-        listeningStartedAtMs = null
+        sessionTiming = null
         preserveUiStateOnDestroy = true
 
         applyUiMutation { current ->
@@ -317,6 +337,7 @@ class RecordForegroundService : Service() {
         }
 
         stopForegroundIfNeeded()
+        PlaybackInterlock.shared.unblock()
         stopSelf()
     }
 
@@ -403,3 +424,11 @@ class RecordForegroundService : Service() {
         Log.i(TAG, "Foreground notification shown")
     }
 }
+
+// Duration is anchored once per session. Wall time is only used for display.
+internal class SessionTiming(private val startedElapsedMs: Long) {
+    fun remainingMs(hours: Int, elapsedNowMs: Long): Long? =
+        if (hours > 0) hours * 3_600_000L - (elapsedNowMs - startedElapsedMs) else null
+}
+
+internal typealias RecorderUiStateMutationSink = (RecorderUiStateMutation) -> Unit

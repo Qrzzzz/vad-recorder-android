@@ -194,4 +194,5 @@
     <string name="export_incomplete_document">保存未完成，原录音未作更改；所选位置可能留有不完整的文件。</string>
     <string name="share_failed">无法准备这段录音进行分享，原件未作更改。</string>
     <string name="transfer_no_app">无法打开系统选择器，请检查是否有可用的应用。</string>
+    <string name="playback_stop_listening_first">停止监听后回听</string>
 </resources>

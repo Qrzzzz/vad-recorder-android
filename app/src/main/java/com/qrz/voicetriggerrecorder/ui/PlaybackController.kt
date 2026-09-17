@@ -3,6 +3,22 @@ package com.qrz.voicetriggerrecorder.ui
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** Main-thread gate shared by every listening entry point and player callback. */
+internal class PlaybackInterlock {
+    private val mutableBlocked = MutableStateFlow(false)
+    val blocked = mutableBlocked.asStateFlow()
+    private val players = mutableSetOf<PlaybackController>()
+    fun register(controller: PlaybackController) { players += controller }
+    fun unregister(controller: PlaybackController) { players -= controller }
+    fun block() {
+        mutableBlocked.value = true
+        players.toList().forEach { it.pause() }
+    }
+    fun unblock() { mutableBlocked.value = false }
+
+    companion object { val shared = PlaybackInterlock() }
+}
+
 internal data class PlaybackState(
     val path: String? = null,
     val isLoading: Boolean = false,
@@ -29,6 +45,7 @@ internal interface PlaybackPlayer {
 
 /** Owned by the screen; all commands and player callbacks run on the main thread. */
 internal class PlaybackController(
+    private val interlock: PlaybackInterlock = PlaybackInterlock.shared,
     private val createPlayer: () -> PlaybackPlayer = { AndroidPlaybackPlayer() }
 ) {
     private val mutableState = MutableStateFlow(PlaybackState())
@@ -39,12 +56,14 @@ internal class PlaybackController(
     private var requestedSeek: Int? = null
 
     fun toggle(path: String) {
+        if (interlock.blocked.value) return
         if (state.value.path == path) {
             if (state.value.isLoading) return
             if (state.value.isPlaying) pause() else resume()
             return
         }
         clear()
+        interlock.register(this)
         mutableState.value = PlaybackState(path = path, isLoading = true)
         playWhenReady = true
         try {
@@ -97,6 +116,7 @@ internal class PlaybackController(
     }
 
     private fun resume() {
+        if (interlock.blocked.value) return
         val current = player ?: return
         safely {
             if (state.value.isComplete) seekTo(state.value.path ?: return@safely, 0)
@@ -134,6 +154,7 @@ internal class PlaybackController(
     }
 
     fun clear() {
+        interlock.unregister(this)
         // Invalidate before release so late callbacks cannot change another clip's state.
         val previous = player
         player = null

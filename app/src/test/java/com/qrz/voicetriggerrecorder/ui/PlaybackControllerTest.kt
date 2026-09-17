@@ -5,12 +5,44 @@ import org.junit.Test
 
 class PlaybackControllerTest {
     private val players = mutableListOf<FakePlayer>()
-    private val controller = PlaybackController { FakePlayer().also { players += it } }
+    private val interlock = PlaybackInterlock()
+    private val controller = PlaybackController(interlock) { FakePlayer().also { players += it } }
     private val state get() = controller.state.value
 
     private fun play(path: String = "first.wav"): FakePlayer {
         controller.toggle(path)
         return players.last().also { it.onPrepared?.invoke() }
+    }
+
+    @Test fun listeningPausesPlaybackBeforeAcquisitionAndBlocksNewPlayback() {
+        val player = play()
+        player.positionMs = 4200
+        interlock.block()
+        assertFalse(state.isPlaying)
+        assertEquals(4200, state.positionMs)
+        controller.toggle("other.wav")
+        controller.toggle("first.wav")
+        assertEquals(1, players.size)
+        assertEquals(1, player.starts)
+        interlock.unblock()
+        assertFalse(state.isPlaying)
+        controller.toggle("first.wav")
+        assertTrue(state.isPlaying)
+        assertEquals(2, player.starts)
+    }
+
+    @Test fun listeningClearsAutoplayEvenWhenPreparedArrivesAfterListeningStops() {
+        controller.toggle("first.wav")
+        val player = players.single()
+        interlock.block()
+        player.onPrepared?.invoke()
+        player.onSeekComplete?.invoke()
+        assertEquals(0, player.starts)
+        interlock.unblock()
+        player.onPrepared?.invoke()
+        assertEquals(0, player.starts)
+        controller.toggle("first.wav")
+        assertEquals(1, player.starts)
     }
 
     @Test fun pauseAndResumeKeepTheSamePlayerAndPosition() {
