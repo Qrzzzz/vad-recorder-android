@@ -195,4 +195,9 @@
     <string name="share_failed">无法准备这段录音进行分享，原件未作更改。</string>
     <string name="transfer_no_app">无法打开系统选择器，请检查是否有可用的应用。</string>
     <string name="playback_stop_listening_first">停止监听后回听</string>
+    <string name="metadata_save_failed">音频已保存，但元数据保存失败。</string>
+    <string name="delete_metadata_remains">音频已删除，但元数据清理失败。请重试清理。</string>
+    <string name="delete_audio_failed">录音删除失败，配套元数据已保留。</string>
+    <string name="action_retry">重试</string>
+    <string name="recording_incomplete">音频不完整或无法读取。文件已保留，暂不可回听、分享或导出。</string>
 </resources>

@@ -75,6 +75,12 @@ import com.qrz.voicetriggerrecorder.record.RecordingFile
 import com.qrz.voicetriggerrecorder.record.RecordingRepository
 import com.qrz.voicetriggerrecorder.record.SensitivityPreset
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.SnackbarResult
+import com.qrz.voicetriggerrecorder.record.DeleteOutcome
 
 private enum class MainTab(
     @StringRes val titleRes: Int
@@ -110,6 +116,7 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
     val playbackBlocked by PlaybackInterlock.shared.blocked.collectAsState()
     val transferState by transfers.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+    val actionScope = rememberCoroutineScope()
     val exportLauncher = rememberLauncherForActivityResult(
         CreateRecordingDocument()
     ) { transfers.destinationSelected(it) }
@@ -332,16 +339,20 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
                         }
                     },
                     onRefresh = { refreshFiles() },
-                    onPlayPause = { playbackController.toggle(it.path) },
+                    onPlayPause = { file ->
+                        runCatching { repository.fileForTransfer(file.path) }
+                            .onSuccess { playbackController.toggle(it.path) }
+                            .onFailure { actionScope.launch { snackbar.showSnackbar(context.getString(R.string.transfer_source_unavailable)) } }
+                    },
                     onSeek = { path, position -> playbackController.seekTo(path, position) },
                     onDelete = { filePendingDelete = it },
                     transferActionsEnabled = transferState.actionsEnabled,
                     onShare = {
                         playbackController.pause()
-                        transfers.share(it.name)
+                        transfers.share(it.path)
                     },
                     onExport = {
-                        if (transfers.beginExport(it.name)) {
+                        if (transfers.beginExport(it.path)) {
                             playbackController.pause()
                             try { exportLauncher.launch(it.name) }
                             catch (_: Exception) { transfers.launchFailed() }
@@ -408,9 +419,22 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
                         if (playback.path == file.path) {
                             playbackController.clear()
                         }
-                        repository.deleteRecording(file.name)
-                        refreshFiles()
                         filePendingDelete = null
+                        actionScope.launch {
+                            var retry: Boolean
+                            do {
+                                val result = withContext(Dispatchers.IO) { repository.deleteRecording(file.path) }
+                                refreshFiles()
+                                val message = when (result) {
+                                    DeleteOutcome.DELETED, DeleteOutcome.ALREADY_ABSENT -> null
+                                    DeleteOutcome.METADATA_REMAINS -> R.string.delete_metadata_remains
+                                    else -> R.string.delete_audio_failed
+                                }
+                                retry = message != null && snackbar.showSnackbar(
+                                    context.getString(message), context.getString(R.string.action_retry)
+                                ) == SnackbarResult.ActionPerformed
+                            } while (retry)
+                        }
                     }
                 ) {
                     Text(stringResource(R.string.action_delete))
@@ -1351,7 +1375,7 @@ private fun RecordingItemCard(
     onExport: () -> Unit
 ) {
     val context = LocalContext.current
-    var menuExpanded by remember(file.name) { mutableStateOf(false) }
+    var menuExpanded by remember(file.path) { mutableStateOf(false) }
     val moreDescription = stringResource(R.string.recording_more_actions, file.name)
 
     Column(
@@ -1374,6 +1398,9 @@ private fun RecordingItemCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        if (file.isCorrupted || !file.isFinalized) {
+            Text(stringResource(R.string.recording_incomplete), color = MaterialTheme.colorScheme.error)
+        }
         if (playback != null) {
             PlaybackProgress(playback = playback, onSeek = onSeek)
         }
@@ -1384,7 +1411,7 @@ private fun RecordingItemCard(
         ) {
             OutlinedButton(
                 onClick = onPlayPause,
-                enabled = playbackEnabled && playback?.isLoading != true,
+                enabled = playbackEnabled && file.isFinalized && !file.isCorrupted && playback?.isLoading != true,
                 modifier = Modifier.weight(1f)
             ) {
                 Text(

@@ -39,7 +39,7 @@ $env:JAVA_HOME = 'D:\Programme Files\Android Studio\jbr'
 
 ```powershell
 .\gradlew.bat -PdeviceAcceptance assembleDebug assembleDebugAndroidTest
-adb install -r app/build/outputs/apk/debug/VADRecorder-v2.4.1.apk
+adb install -r app/build/outputs/apk/debug/VADRecorder-v2.4.2.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell am instrument -w -r com.qrz.voicetriggerrecorder.acceptance.test/androidx.test.runner.AndroidJUnitRunner
 ```

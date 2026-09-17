@@ -1,25 +1,18 @@
 package com.qrz.voicetriggerrecorder.record
 
 import android.content.Context
-import android.os.Environment
 import java.io.File
 
-class RecordingRepository(private val context: Context) {
-
-    private val recordingsDir: File
-        get() {
-            val parent = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-                ?: File(context.filesDir, "music")
-            return File(parent, "voice-recordings")
-        }
+class RecordingRepository(
+    context: Context,
+    private val storage: RecordingStorage = RecordingStorage(context),
+    private val deleteFile: (File) -> Boolean = { it.delete() }
+) {
 
     fun listRecordings(): List<RecordingFile> {
-        val dir = recordingsDir
-        if (!dir.exists() || !dir.isDirectory) return emptyList()
-
-        return dir.listFiles()
-            ?.filter { it.isFile && it.name.endsWith(".wav", ignoreCase = true) }
-            ?.map { file ->
+        return storage.roots().flatMap { it.listFiles()?.toList().orEmpty() }
+            .filter { it.isFile && runCatching { storage.resolve(it.absolutePath) }.isSuccess }
+            .map { file ->
                 val metadata = RecordingMetadataStore.loadOrCreate(file)
                 RecordingFile(
                     name = file.name,
@@ -42,23 +35,26 @@ class RecordingRepository(private val context: Context) {
                     isExported = metadata.isExported
                 )
             }
-            ?.sortedByDescending { it.lastModified }
-            ?: emptyList()
+            .sortedByDescending { it.lastModified }
+
     }
 
-    fun deleteRecording(fileName: String): Boolean {
-        val file = File(recordingsDir, fileName)
-        val deletedRecording = if (file.exists()) file.delete() else false
-        val deletedMetadata = RecordingMetadataStore.deleteFor(file)
-        return deletedRecording && deletedMetadata
+    fun deleteRecording(identity: String): DeleteOutcome {
+        val file = runCatching { storage.resolve(identity) }.getOrNull()
+            ?: return DeleteOutcome.SOURCE_UNAVAILABLE
+        return RecordingMetadataStore.withRecording(file) {
+            val existed = file.exists()
+            if (existed && (!file.isFile || !runCatching { deleteFile(file) }.getOrDefault(false))) {
+                return@withRecording DeleteOutcome.AUDIO_FAILED
+            }
+            if (!RecordingMetadataStore.deleteFor(file, deleteFile)) DeleteOutcome.METADATA_REMAINS
+            else if (existed) DeleteOutcome.DELETED else DeleteOutcome.ALREADY_ABSENT
+        }
     }
 
-    internal fun fileForTransfer(fileName: String): File {
-        require(fileName.isNotBlank() && '/' !in fileName && '\\' !in fileName)
-        require(fileName.endsWith(".wav", ignoreCase = true))
-        val directory = recordingsDir.canonicalFile
-        val file = File(directory, fileName).canonicalFile
-        require(file.parentFile == directory && file.isFile && file.canRead())
+    internal fun fileForTransfer(identity: String): File {
+        val file = storage.resolve(identity)
+        require(file.isFile && file.canRead())
         require(RecordingMetadataStore.isReadyForTransfer(file))
         return file
     }

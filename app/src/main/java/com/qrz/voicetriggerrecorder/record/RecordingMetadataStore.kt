@@ -3,30 +3,35 @@ package com.qrz.voicetriggerrecorder.record
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
 
 object RecordingMetadataStore {
     private const val DEFAULT_SAMPLE_RATE = 16000
     private const val DEFAULT_CHANNELS = 1
     private const val DEFAULT_BITS_PER_SAMPLE = 16
 
+    private val locks = Array(64) { Any() }
+    internal fun <T> withRecording(file: File, action: () -> T): T =
+        synchronized(locks[(file.canonicalPath.hashCode() and Int.MAX_VALUE) % locks.size], action)
+
     // A read-only, stricter check at the transfer boundary. Never trusts sidecar flags.
     fun isReadyForTransfer(wavFile: File): Boolean =
-        WavHeaderReader.read(wavFile, requireCompleteData = true).isFinalized
+        WavHeaderReader.read(wavFile).isFinalized
 
-    fun loadOrCreate(wavFile: File): RecordingMetadata {
+    // Compatibility inference is read-only: browsing never rewrites historical sidecars.
+    fun loadOrCreate(wavFile: File): RecordingMetadata = withRecording(wavFile) {
         val inferred = inferFromWav(wavFile)
-        val stored = read(metadataFileFor(wavFile))
-        val merged = stored?.mergeWith(inferred) ?: inferred
-        if (stored != merged) {
-            write(metadataFileFor(wavFile), merged)
-        }
-        return merged
+        read(metadataFileFor(wavFile))?.mergeWith(inferred) ?: inferred
     }
 
-    fun deleteFor(wavFile: File): Boolean {
-        val metadataFile = metadataFileFor(wavFile)
-        return !metadataFile.exists() || metadataFile.delete()
-    }
+    fun deleteFor(wavFile: File, delete: (File) -> Boolean = { it.delete() }): Boolean =
+        withRecording(wavFile) {
+            val metadataFile = metadataFileFor(wavFile)
+            !metadataFile.exists() || runCatching { delete(metadataFile) }.getOrDefault(false)
+        }
 
     fun writeFinalized(
         wavFile: File,
@@ -35,8 +40,10 @@ object RecordingMetadataStore {
         sampleRate: Int,
         speechDurationMs: Long,
         closeReason: RecordingCloseReason,
-        vadEngineName: String
-    ) {
+        vadEngineName: String,
+        beforeCommit: (File) -> Unit = {}
+    ): Boolean = withRecording(wavFile) {
+        if (!wavFile.isFile) return@withRecording false
         val inferred = inferFromWav(wavFile)
         val metadata = RecordingMetadata(
             id = wavFile.name.substringBeforeLast('.'),
@@ -56,7 +63,7 @@ object RecordingMetadataStore {
             isFinalized = inferred.isFinalized,
             isExported = false
         )
-        write(metadataFileFor(wavFile), metadata)
+        write(metadataFileFor(wavFile), metadata, beforeCommit)
     }
 
     private fun metadataFileFor(wavFile: File): File {
@@ -72,10 +79,24 @@ object RecordingMetadataStore {
         }
     }
 
-    private fun write(file: File, metadata: RecordingMetadata) {
-        try {
-            file.writeText(metadata.toJson().toString(2), Charsets.UTF_8)
+    private fun write(file: File, metadata: RecordingMetadata, beforeCommit: (File) -> Unit): Boolean {
+        var temporary: File? = null
+        return try {
+            val bytes = metadata.toJson().toString(2).toByteArray(Charsets.UTF_8)
+            temporary = File.createTempFile(".${file.name}.", ".tmp", file.parentFile)
+            FileOutputStream(temporary).use { output ->
+                output.write(bytes)
+                output.flush()
+                output.fd.sync()
+            }
+            beforeCommit(temporary)
+            Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING)
+            true
         } catch (_: Exception) {
+            false
+        } finally {
+            temporary?.delete()
         }
     }
 
@@ -233,7 +254,7 @@ private data class WavInfo(
 }
 
 private object WavHeaderReader {
-    fun read(file: File, requireCompleteData: Boolean = false): WavInfo {
+    fun read(file: File): WavInfo {
         if (!file.exists() || file.length() < 44L) {
             return corrupted()
         }
@@ -246,7 +267,7 @@ private object WavHeaderReader {
                 if (riff != "RIFF" || wave != "WAVE") {
                     return corrupted()
                 }
-                if (requireCompleteData && riffSize + 8L != raf.length()) return corrupted()
+                if (riffSize + 8L != raf.length()) return corrupted()
 
                 var sampleRate: Int? = null
                 var channels: Int? = null
@@ -254,12 +275,13 @@ private object WavHeaderReader {
                 var byteRate: Int? = null
                 var dataBytes: Long? = null
                 var audioFormat: Int? = null
+                var blockAlign: Int? = null
 
                 while (raf.filePointer + 8L <= raf.length()) {
                     val chunkId = raf.readAscii(4)
                     val chunkSize = raf.readUnsignedIntLe()
                     val chunkStart = raf.filePointer
-                    if (requireCompleteData && chunkStart + chunkSize > raf.length()) return corrupted()
+                    if (chunkStart + chunkSize > raf.length()) return corrupted()
                     val chunkEnd = (chunkStart + chunkSize).coerceAtMost(raf.length())
 
                     when (chunkId) {
@@ -269,7 +291,7 @@ private object WavHeaderReader {
                                 channels = raf.readUnsignedShortLe()
                                 sampleRate = raf.readIntLe()
                                 byteRate = raf.readIntLe()
-                                raf.readUnsignedShortLe()
+                                blockAlign = raf.readUnsignedShortLe()
                                 bitsPerSample = raf.readUnsignedShortLe()
                             }
                         }
@@ -282,10 +304,16 @@ private object WavHeaderReader {
                     raf.seek(chunkEnd + (chunkSize and 1L))
                 }
 
+                if (raf.filePointer != raf.length()) return corrupted()
+                val expectedAlign = (channels ?: 0).toLong() * (bitsPerSample ?: 0) / 8
+                if (expectedAlign <= 0 || blockAlign?.toLong() != expectedAlign ||
+                    (bitsPerSample ?: 0) % 8 != 0 ||
+                    byteRate?.toLong() != (sampleRate ?: 0).toLong() * expectedAlign ||
+                    (dataBytes ?: 0) % expectedAlign != 0L) return corrupted()
                 val isPcm = audioFormat == 1
                 val hasRequiredChunks = sampleRate != null && channels != null &&
                     bitsPerSample != null && dataBytes != null
-                if (requireCompleteData && (
+                if ((
                     (sampleRate ?: 0) <= 0 || (channels ?: 0) <= 0 ||
                     (bitsPerSample ?: 0) <= 0 || (byteRate ?: 0) <= 0 || (dataBytes ?: 0) <= 0
                 )) return corrupted()

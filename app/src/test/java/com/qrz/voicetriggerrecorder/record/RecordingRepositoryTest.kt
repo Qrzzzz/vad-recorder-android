@@ -50,7 +50,7 @@ class RecordingRepositoryTest {
         assertNull(recording.speechDurationMs)
         assertTrue(recording.isFinalized)
         assertFalse(recording.isCorrupted)
-        assertTrue(File(dir, "legacy.wav.json").exists())
+        assertFalse(File(dir, "legacy.wav.json").exists())
     }
 
     @Test
@@ -85,11 +85,11 @@ class RecordingRepositoryTest {
     @Test
     fun deleteRecordingRemovesWavAndMetadata() {
         val wav = finalizedWav("delete-me.wav", sampleRate = 16_000, sampleCount = 16_000)
-        repository.listRecordings()
+        RecordingMetadataStore.writeFinalized(wav, 100, 1100, 16000, 740, RecordingCloseReason.ManualStop, "TestVad")
         val metadata = File(dir, "delete-me.wav.json")
         assertTrue(metadata.exists())
 
-        assertTrue(repository.deleteRecording(wav.name))
+        assertEquals(DeleteOutcome.DELETED, repository.deleteRecording(wav.absolutePath))
 
         assertFalse(wav.exists())
         assertFalse(metadata.exists())
@@ -110,7 +110,7 @@ class RecordingRepositoryTest {
     @Test
     fun missingAndInvalidEndTimesFallBackToWavTime() {
         val wav = finalizedWav("fallback.wav", 16_000, 16_000)
-        repository.listRecordings()
+        RecordingMetadataStore.writeFinalized(wav, 100, 1100, 16000, 740, RecordingCloseReason.ManualStop, "TestVad")
         val sidecar = File(dir, "${wav.name}.json")
         listOf<Long?>(null, -1L, 0L).forEach { endedAt ->
             val json = org.json.JSONObject(sidecar.readText())
