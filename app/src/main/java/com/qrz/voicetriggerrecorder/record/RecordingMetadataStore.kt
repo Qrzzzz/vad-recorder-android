@@ -27,6 +27,17 @@ object RecordingMetadataStore {
         read(metadataFileFor(wavFile))?.mergeWith(inferred) ?: inferred
     }
 
+    fun setFavorite(wavFile: File, favorite: Boolean): Boolean = withRecording(wavFile) {
+        if (!wavFile.isFile) return@withRecording false
+        val sidecar = metadataFileFor(wavFile)
+        // Preserve unknown fields; an unreadable sidecar must not be overwritten.
+        val json = try {
+            if (sidecar.exists()) JSONObject(sidecar.readText(Charsets.UTF_8))
+            else loadOrCreate(wavFile).toJson()
+        } catch (_: Exception) { return@withRecording false }
+        writeJson(sidecar, json.put("isFavorite", favorite))
+    }
+
     fun deleteFor(wavFile: File, delete: (File) -> Boolean = { it.delete() }): Boolean =
         withRecording(wavFile) {
             val metadataFile = metadataFileFor(wavFile)
@@ -61,7 +72,8 @@ object RecordingMetadataStore {
             vadConfidence = null,
             isCorrupted = inferred.isCorrupted,
             isFinalized = inferred.isFinalized,
-            isExported = false
+            isExported = false,
+            isFavorite = read(metadataFileFor(wavFile))?.isFavorite ?: false
         )
         write(metadataFileFor(wavFile), metadata, beforeCommit)
     }
@@ -80,9 +92,13 @@ object RecordingMetadataStore {
     }
 
     private fun write(file: File, metadata: RecordingMetadata, beforeCommit: (File) -> Unit): Boolean {
+        return writeJson(file, metadata.toJson(), beforeCommit)
+    }
+
+    private fun writeJson(file: File, json: JSONObject, beforeCommit: (File) -> Unit = {}): Boolean {
         var temporary: File? = null
         return try {
-            val bytes = metadata.toJson().toString(2).toByteArray(Charsets.UTF_8)
+            val bytes = json.toString(2).toByteArray(Charsets.UTF_8)
             temporary = File.createTempFile(".${file.name}.", ".tmp", file.parentFile)
             FileOutputStream(temporary).use { output ->
                 output.write(bytes)
@@ -184,7 +200,8 @@ object RecordingMetadataStore {
             vadConfidence = optNullableFloat("vadConfidence"),
             isCorrupted = optBoolean("isCorrupted", false),
             isFinalized = optBoolean("isFinalized", false),
-            isExported = optBoolean("isExported", false)
+            isExported = optBoolean("isExported", false),
+            isFavorite = optBoolean("isFavorite", false)
         )
     }
 
@@ -206,6 +223,7 @@ object RecordingMetadataStore {
             .put("isCorrupted", isCorrupted)
             .put("isFinalized", isFinalized)
             .put("isExported", isExported)
+            .put("isFavorite", isFavorite)
     }
 
     private fun JSONObject.putNullable(name: String, value: Any?): JSONObject {

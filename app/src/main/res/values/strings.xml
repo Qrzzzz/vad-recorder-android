@@ -207,4 +207,27 @@
     <string name="recovery_clear">Clear remaining fragments</string>
     <string name="recovery_cleanup_failed">Some fragments could not be cleared. Refresh and try again.</string>
     <string name="recovery_clear_confirm">Permanently delete these fragments? Their audio cannot be recovered afterward. Completed recordings will be kept.</string>
+    <string name="storage_overview">Recording storage</string>
+    <string name="storage_totals">Clips: %1$d · %2$s total\nFavorites: %3$s · Available to delete: %4$s</string>
+    <string name="storage_scope">WAV files in accessible recording folders only; excludes metadata, unfinished clips and share cache.</string>
+    <string name="batch_organize">Select recordings</string>
+    <string name="finish_selecting">Finish selecting</string>
+    <string name="select_all">Select all</string>
+    <string name="deselect_all">Deselect all</string>
+    <string name="select_night">Select night</string>
+    <string name="deselect_night">Deselect night</string>
+    <string name="export_night">Export night as ZIP</string>
+    <string name="export_selected">Export selected as ZIP</string>
+    <string name="delete_selected">Delete selected</string>
+    <string name="select_recording">Select recording</string>
+    <string name="favorite">Favorite and protect</string>
+    <string name="unfavorite">Remove from favorites</string>
+    <string name="favorite_protected">Favorited · protected from deletion</string>
+    <string name="favorite_failed">Could not update favorite. Please try again.</string>
+    <string name="selection_summary">Selected: %1$d · %2$s\nCan free %3$s (favorites are kept)</string>
+    <string name="night_storage">Audio size: %1$s</string>
+    <string name="batch_delete_title">Delete selected recordings?</string>
+    <string name="batch_delete_body">Check the selected recordings (%1$d) and permanently delete those that are not favorites. Favorites are always kept. This cannot be undone.</string>
+    <string name="batch_result">Deleted: %1$d · Protected: %2$d · Failed or cleanup incomplete: %3$d. Refresh and retry remaining items if needed.</string>
+    <string name="archive_unavailable">Some selected recordings are incomplete. Deselect them before exporting.</string>
 </resources>

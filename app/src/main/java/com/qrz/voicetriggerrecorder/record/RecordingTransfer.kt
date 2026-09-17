@@ -11,6 +11,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 internal interface RecordingDocumentWriter {
     fun open(uri: Uri): OutputStream?
@@ -100,6 +102,33 @@ internal class RecordingTransfer(
                 runCatching { UUID.fromString(directory.name) }.isSuccess &&
                 now - directory.lastModified() > SHARE_RETENTION_MS
             ) directory.deleteRecursively()
+        }
+    }
+
+    fun exportArchive(identities: List<String>, uri: Uri, checkActive: () -> Unit = {}): ExportOutcome {
+        if (uri.scheme != "content" || uri.authority == "${context.packageName}.recording-shares") {
+            return ExportOutcome.FAILED
+        }
+        var outcome = ExportOutcome.SOURCE_UNAVAILABLE
+        try {
+            require(identities.isNotEmpty())
+            val sources = identities.distinct().map { repository.fileForTransfer(it) }
+            outcome = ExportOutcome.FAILED
+            ZipOutputStream(documents.open(uri) ?: throw IOException("Cannot open destination")).use { zip ->
+                sources.forEachIndexed { index, source ->
+                    checkActive()
+                    // Numbered directories avoid collisions across internal/external roots.
+                    zip.putNextEntry(ZipEntry("${index + 1}/${source.name}"))
+                    val expected = source.length()
+                    source.inputStream().use { copy(it, zip, expected, checkActive) }
+                    check(RecordingMetadataStore.isReadyForTransfer(source))
+                    zip.closeEntry()
+                }
+            }
+            return ExportOutcome.SAVED
+        } catch (_: Exception) {
+            return if (runCatching { documents.delete(uri) }.getOrDefault(false)) outcome
+            else ExportOutcome.INCOMPLETE_DOCUMENT
         }
     }
 

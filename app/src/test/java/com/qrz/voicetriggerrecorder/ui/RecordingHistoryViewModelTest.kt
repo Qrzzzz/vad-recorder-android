@@ -26,6 +26,75 @@ class RecordingHistoryViewModelTest {
         remove: suspend (String) -> DeleteOutcome = { DeleteOutcome.DELETED }
     ) = RecordingHistoryViewModel(scan, remove).also { store.put("history", it) }
 
+    @Test fun batchRetainsFailuresAndFavoritesAndRejectsConcurrentMutations() = runTest(dispatcher) {
+        val favorite = clip.copy(path = "/favorite.wav", isFavorite = true)
+        val failed = clip.copy(path = "/failed.wav")
+        var files = listOf(clip, favorite, failed)
+        val barrier = CompletableDeferred<Unit>()
+        val vm = model({ files }, { path ->
+            barrier.await()
+            when (path) {
+                clip.path -> { files = files.filterNot { it.path == path }; DeleteOutcome.DELETED }
+                favorite.path -> DeleteOutcome.PROTECTED
+                else -> DeleteOutcome.AUDIO_FAILED
+            }
+        })
+        vm.refresh(); advanceUntilIdle()
+        vm.toggleSelectionMode(); vm.toggleSelection(files.map { it.path })
+        vm.deleteSelected(vm.state.value.selected); runCurrent()
+        vm.toggleSelectionMode(); vm.toggleSelection(listOf(clip.path)); vm.refresh()
+        assertTrue(vm.state.value.deleting)
+        assertEquals(3, vm.state.value.selected.size)
+        barrier.complete(Unit); advanceUntilIdle()
+        assertEquals(BatchDeleteResult(1, 1, 1), vm.state.value.batchResult)
+        assertEquals(setOf(favorite.path, failed.path), vm.state.value.selected)
+        assertEquals(2, vm.state.value.files.size)
+    }
+
+    @Test fun refreshPrunesMissingSelectionAndNewClipsAreNotAutomaticallySelected() = runTest(dispatcher) {
+        var files = listOf(clip)
+        val vm = model({ files })
+        vm.refresh(); advanceUntilIdle()
+        vm.toggleSelectionMode(); vm.toggleSelection(listOf(clip.path))
+        files = listOf(clip.copy(path = "/new.wav"))
+        vm.refresh(); advanceUntilIdle()
+        assertTrue(vm.state.value.selected.isEmpty())
+        assertTrue(vm.state.value.selecting)
+    }
+
+    @Test fun batchMetadataCleanupCanBeRetriedAfterAudioDisappearsFromList() = runTest(dispatcher) {
+        var files = listOf(clip)
+        var calls = 0
+        val vm = model({ files }, {
+            files = emptyList()
+            if (calls++ == 0) DeleteOutcome.METADATA_REMAINS else DeleteOutcome.ALREADY_ABSENT
+        })
+        vm.refresh(); advanceUntilIdle()
+        vm.deleteSelected(setOf(clip.path)); advanceUntilIdle()
+        assertTrue(vm.state.value.files.isEmpty())
+        assertEquals(setOf(clip.path), vm.state.value.batchRetry)
+        assertEquals(BatchDeleteResult(0, 0, 1), vm.state.value.batchResult)
+        vm.deleteSelected(vm.state.value.batchRetry); advanceUntilIdle()
+        assertTrue(vm.state.value.batchRetry.isEmpty())
+        assertEquals(BatchDeleteResult(1, 0, 0), vm.state.value.batchResult)
+    }
+
+    @Test fun favoriteFailureKeepsOriginalStateAndAllowsRetry() = runTest(dispatcher) {
+        var success = false
+        var file = clip
+        val vm = RecordingHistoryViewModel({ listOf(file) }, { DeleteOutcome.DELETED },
+            saveFavorite = { _, value -> if (success) file = file.copy(isFavorite = value); success })
+        store.put("history", vm)
+        vm.refresh(); advanceUntilIdle()
+        vm.favorite(clip.path, true); advanceUntilIdle()
+        assertTrue(vm.state.value.favoriteFailed)
+        assertFalse(vm.state.value.files.single().isFavorite)
+        success = true
+        vm.favorite(clip.path, true); advanceUntilIdle()
+        assertFalse(vm.state.value.favoriteFailed)
+        assertTrue(vm.state.value.files.single().isFavorite)
+    }
+
     @Test fun failedRemnantCleanupKeepsResultsAndAllowsRetry() = runTest(dispatcher) {
         val remnant = com.qrz.voicetriggerrecorder.record.RecoveryResult("/a.wav.part",
             com.qrz.voicetriggerrecorder.record.RecoveryOutcome.UNKNOWN)

@@ -30,7 +30,8 @@ class RecordingTransferViewModel(application: Application, private val saved: Sa
     AndroidViewModel(application) {
     private val transfer = RecordingTransfer(application)
     private val mutableState = MutableStateFlow(
-        RecordingTransferState(awaitingDestination = saved.get<String>(PENDING_FILE) != null)
+        RecordingTransferState(awaitingDestination = saved.get<String>(PENDING_FILE) != null ||
+            saved.get<ArrayList<String>>(PENDING_ARCHIVE) != null)
     )
     val state = mutableState.asStateFlow()
 
@@ -46,8 +47,11 @@ class RecordingTransferViewModel(application: Application, private val saved: Sa
     }
 
     fun destinationSelected(uri: Uri?) {
-        val fileName = saved.get<String>(PENDING_FILE) ?: return
+        val fileName = saved.get<String>(PENDING_FILE)
+        val archive = saved.get<ArrayList<String>>(PENDING_ARCHIVE)
+        if (fileName == null && archive == null) return
         saved[PENDING_FILE] = null
+        saved[PENDING_ARCHIVE] = null
         if (uri == null) {
             mutableState.value = RecordingTransferState()
             return
@@ -55,7 +59,8 @@ class RecordingTransferViewModel(application: Application, private val saved: Sa
         mutableState.value = RecordingTransferState(busy = true)
         viewModelScope.launch {
             val outcome = withContext(Dispatchers.IO) {
-                transfer.export(fileName, uri) { ensureActive() }
+                if (archive != null) transfer.exportArchive(archive, uri) { ensureActive() }
+                else transfer.export(requireNotNull(fileName), uri) { ensureActive() }
             }
             mutableState.value = RecordingTransferState(messageRes = when (outcome) {
                 ExportOutcome.SAVED -> R.string.export_saved
@@ -81,14 +86,25 @@ class RecordingTransferViewModel(application: Application, private val saved: Sa
         }
     }
 
+    fun beginArchive(paths: List<String>): Boolean {
+        if (!state.value.actionsEnabled || paths.isEmpty()) return false
+        saved[PENDING_ARCHIVE] = ArrayList(paths.distinct())
+        mutableState.value = RecordingTransferState(awaitingDestination = true)
+        return true
+    }
+
     fun shareLaunched() { mutableState.value = RecordingTransferState() }
 
     fun launchFailed() {
         saved[PENDING_FILE] = null
+        saved[PENDING_ARCHIVE] = null
         mutableState.value = RecordingTransferState(messageRes = R.string.transfer_no_app)
     }
 
     fun dismissMessage() { mutableState.value = state.value.copy(messageRes = null) }
 
-    private companion object { const val PENDING_FILE = "exportFileName" }
+    private companion object {
+        const val PENDING_FILE = "exportFileName"
+        const val PENDING_ARCHIVE = "exportArchivePaths"
+    }
 }

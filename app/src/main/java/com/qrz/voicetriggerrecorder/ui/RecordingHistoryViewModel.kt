@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class HistoryDeleteError(val path: String, val outcome: DeleteOutcome)
+data class BatchDeleteResult(val deleted: Int, val protected: Int, val failed: Int)
 
 data class RecordingHistoryState(
     val files: List<RecordingFile> = emptyList(),
@@ -20,7 +21,12 @@ data class RecordingHistoryState(
     val deleting: Boolean = false,
     val deleteError: HistoryDeleteError? = null,
     val recoveryResults: List<RecoveryResult> = emptyList(),
-    val recoveryCleanupFailed: Boolean = false
+    val recoveryCleanupFailed: Boolean = false,
+    val selecting: Boolean = false,
+    val selected: Set<String> = emptySet(),
+    val batchResult: BatchDeleteResult? = null,
+    val batchRetry: Set<String> = emptySet(),
+    val favoriteFailed: Boolean = false
 )
 
 /** All requests enter on Main; repository operations are main-safe. */
@@ -28,7 +34,8 @@ class RecordingHistoryViewModel(
     private val scan: suspend () -> List<RecordingFile>,
     private val remove: suspend (String) -> DeleteOutcome,
     private val recoveryResults: () -> List<RecoveryResult> = { emptyList() },
-    private val clearRemnants: suspend (List<String>) -> Unit = {}
+    private val clearRemnants: suspend (List<String>) -> Unit = {},
+    private val saveFavorite: suspend (String, Boolean) -> Boolean = { _, _ -> false }
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(RecordingHistoryState())
     val state = mutableState.asStateFlow()
@@ -51,6 +58,7 @@ class RecordingHistoryViewModel(
                 val files = scan()
                 if (request == generation) {
                     mutableState.value = state.value.copy(files = files, loading = false, loadFailed = false,
+                        selected = state.value.selected.intersect(files.map { it.path }.toSet()),
                         recoveryResults = recoveryResults())
                 }
             } catch (cancelled: CancellationException) {
@@ -89,6 +97,64 @@ class RecordingHistoryViewModel(
 
     fun dismissDeleteError() {
         mutableState.value = state.value.copy(deleteError = null)
+    }
+
+    fun toggleSelectionMode() {
+        if (state.value.deleting) return
+        mutableState.value = state.value.copy(selecting = !state.value.selecting, selected = emptySet())
+    }
+
+    fun toggleSelection(paths: List<String>) {
+        if (state.value.deleting) return
+        val valid = paths.toSet().intersect(state.value.files.map { it.path }.toSet())
+        val selected = state.value.selected
+        mutableState.value = state.value.copy(selected =
+            if (selected.containsAll(valid)) selected - valid else selected + valid)
+    }
+
+    fun favorite(path: String, value: Boolean) {
+        if (state.value.deleting) return
+        invalidateScan()
+        mutableState.value = state.value.copy(deleting = true, loading = false, favoriteFailed = false)
+        viewModelScope.launch {
+            val success = try { saveFavorite(path, value) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { false }
+            mutableState.value = state.value.copy(deleting = false, favoriteFailed = !success,
+                files = if (success) state.value.files.map { if (it.path == path) it.copy(isFavorite = value) else it }
+                    else state.value.files)
+            refresh()
+        }
+    }
+
+    fun deleteSelected(paths: Set<String>) {
+        if (state.value.deleting || paths.isEmpty()) return
+        invalidateScan()
+        mutableState.value = state.value.copy(deleting = true, loading = false, batchResult = null)
+        viewModelScope.launch {
+            var deleted = 0
+            var protected = 0
+            var failed = 0
+            val removed = mutableSetOf<String>()
+            val retry = mutableSetOf<String>()
+            for (path in paths) {
+                val outcome = try { remove(path) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { DeleteOutcome.AUDIO_FAILED }
+                when (outcome) {
+                    DeleteOutcome.DELETED, DeleteOutcome.ALREADY_ABSENT -> { deleted++; removed += path }
+                    DeleteOutcome.PROTECTED -> protected++
+                    DeleteOutcome.METADATA_REMAINS -> { failed++; removed += path; retry += path }
+                    else -> { failed++; retry += path }
+                }
+            }
+            mutableState.value = state.value.copy(deleting = false,
+                files = state.value.files.filterNot { it.path in removed },
+                selected = state.value.selected - removed,
+                batchRetry = retry,
+                batchResult = BatchDeleteResult(deleted, protected, failed))
+            refresh()
+        }
     }
 
     fun clearRecoveryRemnants() {

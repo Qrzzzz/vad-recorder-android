@@ -18,5 +18,6 @@ data class RecordingFile(
     val vadConfidence: Float? = null,
     val isCorrupted: Boolean = false,
     val isFinalized: Boolean = false,
-    val isExported: Boolean = false
+    val isExported: Boolean = false,
+    val isFavorite: Boolean = false
 )
