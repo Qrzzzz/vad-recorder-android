@@ -16,5 +16,6 @@ data class RecordingMetadata(
     val vadConfidence: Float?,
     val isCorrupted: Boolean,
     val isFinalized: Boolean,
-    val isExported: Boolean
+    val isExported: Boolean,
+    val isFavorite: Boolean = false
 )

@@ -53,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
@@ -111,6 +112,7 @@ fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryV
     }
     var resumeTick by remember { mutableIntStateOf(0) }
     var filePendingDelete by remember { mutableStateOf<RecordingFile?>(null) }
+    var batchPendingDelete by remember { mutableStateOf<Set<String>?>(null) }
     val fileLoadError = if (historyState.loadFailed) stringResource(R.string.error_recordings_load_failed) else null
     var playbackRequest by remember { mutableStateOf<Job?>(null) }
     val playbackController = remember { PlaybackController() }
@@ -122,6 +124,19 @@ fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryV
     val exportLauncher = rememberLauncherForActivityResult(
         CreateRecordingDocument()
     ) { transfers.destinationSelected(it) }
+
+    val archiveLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")
+    ) { transfers.destinationSelected(it) }
+
+    fun exportArchive(paths: List<String>, name: String) {
+        if (transfers.beginArchive(paths)) {
+            playbackRequest?.cancel()
+            playbackController.pause()
+            try { archiveLauncher.launch(name) }
+            catch (_: Exception) { transfers.launchFailed() }
+        }
+    }
 
     LaunchedEffect(transferState.messageRes) {
         transferState.messageRes?.let { message ->
@@ -150,7 +165,8 @@ fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryV
     LaunchedEffect(historyState.deleteError) {
         historyState.deleteError?.let { error ->
             val message = if (error.outcome == DeleteOutcome.METADATA_REMAINS)
-                R.string.delete_metadata_remains else R.string.delete_audio_failed
+                R.string.delete_metadata_remains else if (error.outcome == DeleteOutcome.PROTECTED)
+                R.string.favorite_protected else R.string.delete_audio_failed
             val retry = snackbar.showSnackbar(context.getString(message), context.getString(R.string.action_retry))
             history.dismissDeleteError()
             if (retry == SnackbarResult.ActionPerformed) history.delete(error.path)
@@ -380,6 +396,12 @@ fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryV
                     },
                     onSeek = { path, position -> playbackController.seekTo(path, position) },
                     onDelete = { filePendingDelete = it },
+                    onToggleSelectionMode = history::toggleSelectionMode,
+                    onToggleSelection = history::toggleSelection,
+                    onBatchDelete = { batchPendingDelete = historyState.selected.toSet() },
+                    onRetryBatch = { batchPendingDelete = historyState.batchRetry.toSet() },
+                    onFavorite = { history.favorite(it.path, !it.isFavorite) },
+                    onArchive = ::exportArchive,
                     transferActionsEnabled = transferState.actionsEnabled && !historyState.deleting,
                     onShare = {
                         playbackRequest?.cancel()
@@ -443,6 +465,25 @@ fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryV
         }
     }
 
+    batchPendingDelete?.let { paths ->
+        AlertDialog(
+            onDismissRequest = { batchPendingDelete = null },
+            title = { Text(stringResource(R.string.batch_delete_title)) },
+            text = { Text(stringResource(R.string.batch_delete_body, paths.size)) },
+            confirmButton = {
+                TextButton(enabled = !historyState.deleting && transferState.actionsEnabled, onClick = {
+                    playbackRequest?.cancel()
+                    playbackController.retainFiles(files.filterNot { it.path in paths }.map { it.path })
+                    batchPendingDelete = null
+                    history.deleteSelected(paths)
+                }) { Text(stringResource(R.string.action_delete)) }
+            },
+            dismissButton = { TextButton(onClick = { batchPendingDelete = null }) {
+                Text(stringResource(R.string.action_cancel))
+            } }
+        )
+    }
+
     filePendingDelete?.let { file ->
         AlertDialog(
             onDismissRequest = { filePendingDelete = null },
@@ -499,6 +540,12 @@ private fun HomeTabContent(
     onPlayPause: (RecordingFile) -> Unit,
     onSeek: (String, Int) -> Unit,
     onDelete: (RecordingFile) -> Unit,
+    onToggleSelectionMode: () -> Unit,
+    onToggleSelection: (List<String>) -> Unit,
+    onBatchDelete: () -> Unit,
+    onRetryBatch: () -> Unit,
+    onFavorite: (RecordingFile) -> Unit,
+    onArchive: (List<String>, String) -> Unit,
     transferActionsEnabled: Boolean,
     onShare: (RecordingFile) -> Unit,
     onExport: (RecordingFile) -> Unit,
@@ -627,6 +674,12 @@ private fun HomeTabContent(
             )
         }
 
+        item(key = "organize") {
+            OrganizeControls(historyState, transferActionsEnabled, onToggleSelectionMode,
+                onToggleSelection, onBatchDelete, onRetryBatch,
+                { onArchive(historyState.files.filter { it.path in historyState.selected }.map { it.path }, "recordings.zip") })
+        }
+
         if (playback.hasError) {
             item {
                 TipCard(
@@ -653,7 +706,24 @@ private fun HomeTabContent(
         } else {
             nightGroups.forEach { group ->
                 item(key = "night:${group.nightDate}", contentType = "night-header") {
-                    NightGroupHeader(group)
+                    Column {
+                        NightGroupHeader(group)
+                        Text(stringResource(R.string.night_storage,
+                            formatFileSize(LocalContext.current, group.recordings.sumOf { it.sizeBytes })))
+                        Row {
+                            if (historyState.selecting) {
+                                TextButton(onClick = { onToggleSelection(group.recordings.map { it.path }) },
+                                    enabled = transferActionsEnabled) {
+                                    Text(stringResource(if (historyState.selected.containsAll(group.recordings.map { it.path }))
+                                        R.string.deselect_night else R.string.select_night))
+                                }
+                            }
+                            TextButton(onClick = { onArchive(group.recordings.map { it.path }, "night-${group.nightDate}.zip") },
+                                enabled = transferActionsEnabled && group.recordings.all { it.isFinalized && !it.isCorrupted }) {
+                                Text(stringResource(R.string.export_night))
+                            }
+                        }
+                    }
                 }
                 items(group.recordings, key = { "recording:${it.path}" }, contentType = { "recording" }) { file ->
                     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -665,6 +735,10 @@ private fun HomeTabContent(
                                 onPlayPause = { onPlayPause(file) },
                                 onSeek = { onSeek(file.path, it) },
                                 onDelete = { onDelete(file) },
+                                selecting = historyState.selecting,
+                                selected = file.path in historyState.selected,
+                                onSelect = { onToggleSelection(listOf(file.path)) },
+                                onFavorite = { onFavorite(file) },
                                 transferActionsEnabled = transferActionsEnabled,
                                 onShare = { onShare(file) },
                                 onExport = { onExport(file) }
@@ -1396,6 +1470,10 @@ private fun RecordingItemCard(
     onPlayPause: () -> Unit,
     onSeek: (Int) -> Unit,
     onDelete: () -> Unit,
+    selecting: Boolean,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onFavorite: () -> Unit,
     transferActionsEnabled: Boolean,
     onShare: () -> Unit,
     onExport: () -> Unit
@@ -1424,6 +1502,15 @@ private fun RecordingItemCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        if (selecting) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onSelect() },
+                    enabled = transferActionsEnabled,
+                    modifier = Modifier.semantics { contentDescription = file.name })
+                Text(stringResource(R.string.select_recording))
+            }
+        }
+        if (file.isFavorite) Text(stringResource(R.string.favorite_protected), style = MaterialTheme.typography.labelMedium)
         if (file.closeReason in listOf("Recovered", "Destroy", "StorageError", "ReadError")) {
             Text(stringResource(R.string.recovery_interrupted), style = MaterialTheme.typography.labelMedium)
         }
@@ -1474,8 +1561,13 @@ private fun RecordingItemCard(
                         onClick = { menuExpanded = false; onExport() }
                     )
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.action_delete)) },
+                        text = { Text(stringResource(if (file.isFavorite) R.string.unfavorite else R.string.favorite)) },
                         enabled = transferActionsEnabled,
+                        onClick = { menuExpanded = false; onFavorite() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_delete)) },
+                        enabled = transferActionsEnabled && !file.isFavorite,
                         onClick = { menuExpanded = false; onDelete() }
                     )
                 }

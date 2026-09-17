@@ -21,6 +21,10 @@ class RecordingRepository(
 
     suspend fun playbackSource(identity: String): File = withContext(ioDispatcher) { fileForTransfer(identity) }
 
+    suspend fun setFavorite(identity: String, favorite: Boolean): Boolean = withContext(ioDispatcher) {
+        RecordingMetadataStore.setFavorite(storage.resolve(identity), favorite)
+    }
+
     suspend fun clearRemnants(paths: List<String>) = withContext(ioDispatcher) {
         synchronized(RecordingRecovery.lock) {
             paths.forEach { path ->
@@ -59,7 +63,8 @@ class RecordingRepository(
                     vadConfidence = metadata.vadConfidence,
                     isCorrupted = metadata.isCorrupted,
                     isFinalized = metadata.isFinalized,
-                    isExported = metadata.isExported
+                    isExported = metadata.isExported,
+                    isFavorite = metadata.isFavorite
                 )
             }
             .sortedByDescending { it.lastModified }
@@ -70,6 +75,7 @@ class RecordingRepository(
         val file = runCatching { storage.resolve(identity) }.getOrNull()
             ?: return DeleteOutcome.SOURCE_UNAVAILABLE
         return synchronized(RecordingRecovery.lock) { RecordingMetadataStore.withRecording(file) {
+            if (RecordingMetadataStore.loadOrCreate(file).isFavorite) return@withRecording DeleteOutcome.PROTECTED
             if (!RecordingRecovery.discard(file, deleteFile)) return@withRecording DeleteOutcome.AUDIO_FAILED
             val existed = file.exists()
             if (existed && (!file.isFile || !runCatching { deleteFile(file) }.getOrDefault(false))) {

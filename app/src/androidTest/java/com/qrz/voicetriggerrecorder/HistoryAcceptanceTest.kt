@@ -91,7 +91,59 @@ class HistoryAcceptanceTest {
 
     @After fun cleanup() {
         scenario?.close()
-        fixtures.forEach { RecordingRepository(context).deleteRecording(it.path) }
+        fixtures.forEach {
+            RecordingMetadataStore.setFavorite(it, false)
+            RecordingRepository(context).deleteRecording(it.path)
+        }
+    }
+
+    @Test fun batchSelectionSurvivesRecreationAndConfirmationProtectsFavorites() {
+        val favorite = seed(0)
+        val ordinary = seed(1)
+        assertTrue(RecordingMetadataStore.setFavorite(favorite, true))
+        launch()
+        fun clickText(id: Int) {
+            compose.onNodeWithTag("history-list").performScrollToNode(hasText(context.getString(id)))
+            compose.onNodeWithText(context.getString(id)).performScrollTo().performClick()
+        }
+        clickText(R.string.batch_organize)
+        clickText(R.string.select_all)
+        assertEquals(2, history.state.value.selected.size)
+        compose.onNodeWithText(context.getString(R.string.storage_overview)).performScrollTo().assertIsDisplayed()
+        assertTrue(UiDevice.getInstance(instrumentation).takeScreenshot(
+            File(context.filesDir, "v26-organize.png")))
+        scenario!!.recreate()
+        scenario!!.onActivity { history = ViewModelProvider(it)[RecordingHistoryViewModel::class.java] }
+        awaitCount(2)
+        assertEquals(2, history.state.value.selected.size)
+        clickText(R.string.export_selected)
+        val device = UiDevice.getInstance(instrumentation)
+        assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(
+            androidx.test.uiautomator.By.pkg(java.util.regex.Pattern.compile(".*documentsui.*"))), 10000))
+        device.pressBack()
+        compose.waitForIdle()
+        assertTrue(ordinary.exists())
+        assertTrue(favorite.exists())
+        clickText(R.string.delete_selected)
+        compose.onNodeWithText(context.getString(R.string.batch_delete_body, 2)).assertIsDisplayed()
+        compose.waitForIdle()
+        device.waitForIdle()
+        assertTrue(device.takeScreenshot(File(context.filesDir, "v26-confirm.png")))
+        compose.onNodeWithText(context.getString(R.string.action_cancel)).performClick()
+        assertTrue(ordinary.exists())
+        assertTrue(favorite.exists())
+        clickText(R.string.delete_selected)
+        compose.onNodeWithText(context.getString(R.string.action_delete)).performClick()
+        awaitCount(1)
+        assertFalse(ordinary.exists())
+        assertTrue(favorite.exists())
+        assertEquals(1, history.state.value.batchResult?.protected)
+        scroll(favorite)
+        action(favorite, R.string.action_more).performScrollTo().performClick()
+        compose.onNodeWithText(context.getString(R.string.action_delete)).assertIsNotEnabled()
+        compose.onNodeWithText(context.getString(R.string.unfavorite)).performClick()
+        compose.waitUntil(8000) { !history.state.value.deleting && !history.state.value.files.single().isFavorite }
+        assertFalse(RecordingMetadataStore.loadOrCreate(favorite).isFavorite)
     }
 
     @Test fun fiveHundredSameNightRowsAreLazyAndKeepPlaybackAndMenuIdentity() {

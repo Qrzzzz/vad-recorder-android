@@ -17,6 +17,19 @@ import org.robolectric.annotation.Config
 class RecordingTransferViewModelTest {
     private val application = ApplicationProvider.getApplicationContext<Application>()
 
+    @Test fun archivePickerSurvivesRecreationAndCancellationClearsSnapshot() {
+        val saved = SavedStateHandle()
+        val original = RecordingTransferViewModel(application, saved)
+        assertTrue(original.beginArchive(listOf("/a.wav", "/b.wav")))
+        assertFalse(original.beginExport("other.wav"))
+        assertFalse(original.beginArchive(listOf("/c.wav")))
+        val restored = RecordingTransferViewModel(application, SavedStateHandle(saved.keys().associateWith { saved.get<Any>(it) }))
+        assertTrue(restored.state.value.awaitingDestination)
+        restored.destinationSelected(null)
+        assertTrue(restored.state.value.actionsEnabled)
+        assertTrue(restored.beginExport("other.wav"))
+    }
+
     @Test fun restoredPickerRequestCanBeCancelledAndRetried() {
         val saved = SavedStateHandle()
         val original = RecordingTransferViewModel(application, saved)
