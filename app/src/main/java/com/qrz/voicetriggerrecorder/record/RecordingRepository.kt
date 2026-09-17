@@ -13,13 +13,27 @@ class RecordingRepository(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val deleteFile: (File) -> Boolean = { it.delete() }
 ) {
+    var recoveryResults: List<RecoveryResult> = emptyList()
+        private set
     suspend fun scan(): List<RecordingFile> = withContext(ioDispatcher) { listRecordings() }
 
     suspend fun delete(identity: String): DeleteOutcome = withContext(ioDispatcher) { deleteRecording(identity) }
 
     suspend fun playbackSource(identity: String): File = withContext(ioDispatcher) { fileForTransfer(identity) }
 
+    suspend fun clearRemnants(paths: List<String>) = withContext(ioDispatcher) {
+        synchronized(RecordingRecovery.lock) {
+            paths.forEach { path ->
+                require(path.endsWith(".wav.part"))
+                val target = storage.resolve(path.removeSuffix(".part"))
+                // A stale UI must never delete an active writer or a completed recording.
+                if (!RecordingRecovery.discard(target)) throw IOException("Cannot clear remnant")
+            }
+        }
+    }
+
     internal fun listRecordings(): List<RecordingFile> {
+        recoveryResults = storage.roots().flatMap { RecordingRecovery.recover(it) }
         return storage.roots().flatMap {
             if (!it.exists()) emptyList() else it.listFiles()?.toList()
                 ?: throw IOException("Cannot scan recording directory")
@@ -55,14 +69,15 @@ class RecordingRepository(
     internal fun deleteRecording(identity: String): DeleteOutcome {
         val file = runCatching { storage.resolve(identity) }.getOrNull()
             ?: return DeleteOutcome.SOURCE_UNAVAILABLE
-        return RecordingMetadataStore.withRecording(file) {
+        return synchronized(RecordingRecovery.lock) { RecordingMetadataStore.withRecording(file) {
+            if (!RecordingRecovery.discard(file, deleteFile)) return@withRecording DeleteOutcome.AUDIO_FAILED
             val existed = file.exists()
             if (existed && (!file.isFile || !runCatching { deleteFile(file) }.getOrDefault(false))) {
                 return@withRecording DeleteOutcome.AUDIO_FAILED
             }
             if (!RecordingMetadataStore.deleteFor(file, deleteFile)) DeleteOutcome.METADATA_REMAINS
             else if (existed) DeleteOutcome.DELETED else DeleteOutcome.ALREADY_ABSENT
-        }
+        } }
     }
 
     internal fun fileForTransfer(identity: String): File {

@@ -15,8 +15,11 @@ Use this checklist after recorder-core changes and before publishing a debug bui
 - Normal speech save: speak for several seconds, stop speaking, wait for the 30 second silence countdown, and confirm one playable `.wav` plus one `.wav.json` sidecar exists.
 - Silence timeout merge: speak, pause for less than 30 seconds, speak again, then wait 30 seconds; confirm one continuous clip is saved.
 - Manual stop save: speak long enough to trigger recording, tap stop while recording or in the countdown, and confirm the current clip is saved and playable.
-- Read/setup failure: deny or revoke microphone access, or occupy the microphone with another app, then start listening and confirm the UI leaves the running/listening state and no partial file remains.
-- Partial cleanup: force-stop the app during an active recording, restart it, and confirm stale `.wav.part` files are cleaned up on the next recorder start.
+- Read/setup failure: deny or revoke microphone access and confirm a real setup/read error stops capture. For active audio, verify a finalized recording or an explicit recoverable remnant rather than requiring unconditional deletion.
+- System input restriction (API 29+): start a second foreground recording app with a different UID, verify the first app stays running and displays system-silenced input in its UI/notification, then stop the competitor and verify the state clears. Ordinary quiet/all-zero frames alone must not report a restriction. API 26–28 must not call the newer configuration/silence APIs.
+- Interrupted recovery: force-stop during active recording, restart, and verify known-format fragments recover once with their actual sample rate and an interruption label. Repeat refresh/start and confirm no duplicates or overwritten formal WAVs. Do not assume `onDestroy` runs on force-stop or promise zero loss.
+- Unknown/empty remnants: inject disposable old zero-header fragments without parameters, and known-format fragments without complete samples. Verify the distinct explanation, no guessed 16 kHz, and confirmed cleanup without deleting completed audio.
+- Deletion versus recovery: delete a recording with an associated remnant, refresh/restart, and verify it never reappears. Inject cleanup failure and verify the formal recording is retained and the failure remains visible.
 
 ## File and Metadata Checks
 

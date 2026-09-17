@@ -28,7 +28,7 @@
 ## 安装
 
 ```powershell
-adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.4.3.apk
+adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.5.apk
 ```
 
 升级时须使用与已安装版本相同的签名。签名不一致时先核对构建使用的密钥；卸载会清除应用录音，不应作为默认升级步骤。
@@ -66,6 +66,8 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 - 环境校准：监听开始后隐藏校准环境噪声底，按灵敏度预设映射到底层阈值。
 - 状态机：`RecordingStateMachine` 使用明确关闭原因收尾，并过滤短促误触发。
 - 文件安全：文件名包含时间戳与 UUID，独占创建 `.wav.part`，finalize 成功后以禁止覆盖的移动保存为 `.wav`；写入或提交失败会停止监听并显示错误。
+- 异常恢复：新片段同步保存真实参数；可控异常尽量收尾，失败则保留待恢复片段。恢复不覆盖、不重复生成，未知参数残留单独提示与清理，不承诺任意强杀零损失。
+- 输入状态：API 29 起通过平台录音配置区分系统静音与环境安静，并显示限制与解除；API 26–28 安全降级。
 - 元数据：每个新 WAV 搭配 JSON sidecar，记录时间、时长、大小、采样率、关闭原因、VAD 引擎、finalize 状态等。
 - UI：Jetpack Compose + Material 3，外观通过 AppCompat 原生夜间模式跟随系统或固定浅色/深色。
 - 后台执行：`foregroundServiceType="microphone"`。
@@ -95,4 +97,4 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 
 ## 版本发布与真机验收
 
-发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.4.3 更新内容见 [2.4.3 更新说明](./docs/releases/2.4.3.md)，验证结果与真机验收边界见 [2.4.3 验证记录](./docs/internal/v2.4.3-validation.md)。2.4 验证见 [2.4 验收记录](./docs/internal/v2.4-validation.md)。历史验证见 [2.3 验收记录](./docs/internal/v2.3-validation.md)和 [2.2 验收记录](./docs/internal/v2.2-validation.md)。
+发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.5 更新内容见 [2.5 更新说明](./docs/releases/2.5.md)，恢复契约、验证结果与设备验收边界见 [2.5 验证记录](./docs/internal/v2.5-validation.md)。2.4 验证见 [2.4 验收记录](./docs/internal/v2.4-validation.md)。历史验证见 [2.3 验收记录](./docs/internal/v2.3-validation.md)和 [2.2 验收记录](./docs/internal/v2.2-validation.md)。

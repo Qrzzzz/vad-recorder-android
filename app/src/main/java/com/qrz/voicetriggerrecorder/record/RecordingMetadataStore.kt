@@ -38,7 +38,7 @@ object RecordingMetadataStore {
         createdAt: Long,
         endedAt: Long,
         sampleRate: Int,
-        speechDurationMs: Long,
+        speechDurationMs: Long?,
         closeReason: RecordingCloseReason,
         vadEngineName: String,
         beforeCommit: (File) -> Unit = {}

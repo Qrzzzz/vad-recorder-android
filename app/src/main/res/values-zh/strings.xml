@@ -200,4 +200,11 @@
     <string name="delete_audio_failed">录音删除失败，配套元数据已保留。</string>
     <string name="action_retry">重试</string>
     <string name="recording_incomplete">音频不完整或无法读取。文件已保留，暂不可回听、分享或导出。</string>
+    <string name="input_silenced_title">麦克风输入受限</string>
+    <string name="input_silenced">系统已将麦克风输入静音，正在等待输入恢复。</string>
+    <string name="recovery_interrupted">异常中断 · 已保存可用音频</string>
+    <string name="recovery_remnants">待重试 %1$d · 参数未知 %2$d · 无完整采样 %3$d · 同名冲突 %4$d。片段已单独保留，可刷新重试。</string>
+    <string name="recovery_clear">清理残留片段</string>
+    <string name="recovery_cleanup_failed">部分片段未能清理，请刷新后重试。</string>
+    <string name="recovery_clear_confirm">永久删除这些残留片段？删除后无法恢复其中的音频，已完成的录音会保留。</string>
 </resources>

@@ -142,7 +142,9 @@ class RecordForegroundService : Service() {
                     retiringJobs.remove(retiring)
                 }
                 if (engine !== captureEngine || stopping || destroyInProgress) return@launch
-                RecordingStateMachine.cleanupStalePartialFiles(applicationContext)
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    RecordingStorage(applicationContext).roots().forEach { RecordingRecovery.recover(it) }
+                }
                 closeReason = captureEngine.start()
             } catch (e: CancellationException) {
                 throw e
@@ -179,6 +181,7 @@ class RecordForegroundService : Service() {
         if (
             before.recorderPhase != after.recorderPhase ||
             before.currentFileName != after.currentFileName ||
+            before.inputSilenced != after.inputSilenced ||
             before.errorMessage != after.errorMessage
         ) {
             scope.launch(Dispatchers.Main.immediate) {
@@ -388,7 +391,8 @@ class RecordForegroundService : Service() {
             RecorderPhase.RECORDER_FAILED -> getString(R.string.notification_title_error)
             else -> getString(R.string.notification_title_listening)
         }
-        val notificationText = when (currentState.recorderPhase) {
+        val notificationText = if (currentState.inputSilenced == true) getString(R.string.input_silenced)
+        else when (currentState.recorderPhase) {
             RecorderPhase.RECORDING -> getString(R.string.notification_text_recording)
             RecorderPhase.WAITING_TO_FINISH -> getString(R.string.notification_text_finishing)
             RecorderPhase.MICROPHONE_SETUP_FAILED,
@@ -398,7 +402,7 @@ class RecordForegroundService : Service() {
         }
 
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(notificationTitle)
+            .setContentTitle(if (currentState.inputSilenced == true) getString(R.string.input_silenced_title) else notificationTitle)
             .setContentText(notificationText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(notificationText))
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)

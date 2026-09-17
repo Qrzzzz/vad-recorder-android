@@ -26,6 +26,30 @@ class RecordingHistoryViewModelTest {
         remove: suspend (String) -> DeleteOutcome = { DeleteOutcome.DELETED }
     ) = RecordingHistoryViewModel(scan, remove).also { store.put("history", it) }
 
+    @Test fun failedRemnantCleanupKeepsResultsAndAllowsRetry() = runTest(dispatcher) {
+        val remnant = com.qrz.voicetriggerrecorder.record.RecoveryResult("/a.wav.part",
+            com.qrz.voicetriggerrecorder.record.RecoveryOutcome.UNKNOWN)
+        var remaining = listOf(remnant)
+        var attempts = 0
+        val vm = RecordingHistoryViewModel({ listOf(clip) }, { DeleteOutcome.DELETED },
+            { remaining }, { paths ->
+                assertEquals(listOf(remnant.path), paths)
+                if (attempts++ == 0) throw java.io.IOException("unavailable")
+                remaining = emptyList()
+            }).also { store.put("history", it) }
+        vm.refresh(); advanceUntilIdle()
+        vm.clearRecoveryRemnants(); advanceUntilIdle()
+        assertTrue(vm.state.value.recoveryCleanupFailed)
+        assertFalse(vm.state.value.deleting)
+        assertFalse(vm.state.value.loading)
+        assertEquals(listOf(clip), vm.state.value.files)
+        assertEquals(listOf(remnant), vm.state.value.recoveryResults)
+        vm.clearRecoveryRemnants(); advanceUntilIdle()
+        assertFalse(vm.state.value.recoveryCleanupFailed)
+        assertTrue(vm.state.value.recoveryResults.isEmpty())
+        assertEquals(listOf(clip), vm.state.value.files)
+    }
+
     @Test fun latestRefreshWinsEvenWhenOldScanIgnoresCancellation() = runTest(dispatcher) {
         val old = CompletableDeferred<List<RecordingFile>>()
         var calls = 0

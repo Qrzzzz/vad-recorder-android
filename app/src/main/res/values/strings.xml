@@ -200,4 +200,11 @@
     <string name="delete_audio_failed">Recording could not be deleted. Its metadata has been kept.</string>
     <string name="action_retry">Retry</string>
     <string name="recording_incomplete">Incomplete or unreadable audio. File kept; playback and transfer unavailable.</string>
+    <string name="input_silenced_title">Microphone input restricted</string>
+    <string name="input_silenced">The system has silenced microphone input. Waiting for access to resume.</string>
+    <string name="recovery_interrupted">Interrupted recording · saved audio</string>
+    <string name="recovery_remnants">Pending: %1$d · Unknown format: %2$d · No complete samples: %3$d · Name conflict: %4$d. Fragments are kept separately. Refresh to retry.</string>
+    <string name="recovery_clear">Clear remaining fragments</string>
+    <string name="recovery_cleanup_failed">Some fragments could not be cleared. Refresh and try again.</string>
+    <string name="recovery_clear_confirm">Permanently delete these fragments? Their audio cannot be recovered afterward. Completed recordings will be kept.</string>
 </resources>
