@@ -1,7 +1,6 @@
 package com.qrz.voicetriggerrecorder.record
 
 import android.content.Context
-import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
 import com.qrz.voicetriggerrecorder.R
@@ -35,9 +34,7 @@ class RecordingStateMachine(
         }
 
         private fun recordingsDir(context: Context): File {
-            val parent = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-                ?: File(context.filesDir, "music")
-            return File(parent, "voice-recordings")
+            return RecordingStorage(context).writeDirectory()
         }
     }
 
@@ -296,7 +293,7 @@ class RecordingStateMachine(
 
         if (f != null && committed) {
             val endedAtMs = wallClockMs()
-            RecordingMetadataStore.writeFinalized(
+            val metadataSaved = RecordingMetadataStore.writeFinalized(
                 wavFile = f,
                 createdAt = startedAtMs.takeIf { it > 0L }
                     ?: (endedAtMs - speechDurationMs).coerceAtLeast(0L),
@@ -321,7 +318,8 @@ class RecordingStateMachine(
                     currentFileName = null,
                     lastSavedFileName = fileName,
                     savedCount = current.savedCount + 1,
-                    errorMessage = if (reason == RecordingCloseReason.ReadError) current.errorMessage else null,
+                    errorMessage = if (!metadataSaved) context.getString(R.string.metadata_save_failed)
+                        else if (reason == RecordingCloseReason.ReadError) current.errorMessage else null,
                     countdownRemainingMs = null
                 )
             }

@@ -72,7 +72,12 @@ jobs:
         run: |
           apk="app/build/outputs/apk/release/VADRecorder-v${APP_VERSION}.apk"
           apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
-          "$apksigner" verify "$apk"
+          "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/apk-signature.txt"
+          grep -F 'Signer #1 certificate SHA-256 digest: b2b0f013dcfa428bb6f4c3563faa204c7890f72abd6062d1cbbb155222d493c9' "$RUNNER_TEMP/apk-signature.txt"
+          aapt="$(dirname "$apksigner")/aapt"
+          "$aapt" dump badging "$apk" > "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "package: name='com.qrz.voicetriggerrecorder'" "$RUNNER_TEMP/apk-badging.txt" | grep -F "versionName='$APP_VERSION'"
+          if grep -q 'application-debuggable' "$RUNNER_TEMP/apk-badging.txt"; then exit 1; fi
           (cd "$(dirname "$apk")" && sha256sum "$(basename "$apk")" > SHA256SUMS.txt)
           gh release create "$GITHUB_REF_NAME" "$apk" "$(dirname "$apk")/SHA256SUMS.txt" \
             --verify-tag --title "梦话录音机 v${APP_VERSION}" \

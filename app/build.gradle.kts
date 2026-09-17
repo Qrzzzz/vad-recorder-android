@@ -12,8 +12,8 @@ android {
         applicationId = "com.qrz.voicetriggerrecorder"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "2.4.1"
+        versionCode = 12
+        versionName = "2.4.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Separate clean install for device acceptance, preserving the user's recordings.
         if (providers.gradleProperty("deviceAcceptance").isPresent) {

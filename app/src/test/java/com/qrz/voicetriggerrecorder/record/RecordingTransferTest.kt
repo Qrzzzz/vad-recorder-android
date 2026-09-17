@@ -51,6 +51,25 @@ class RecordingTransferTest {
         assertOriginalUnchanged()
     }
 
+    @Test fun sameNameInBothRootsExportsAndSharesOnlySelectedSource() {
+        val internal = File(context.filesDir, "music/voice-recordings").apply { mkdirs() }
+        val other = File(internal, source.name)
+        WavFileWriter(other, 16000).apply {
+            writeSamples(ShortArray(8000) { 42 }, 8000)
+            assertTrue(closeAndCommit())
+        }
+        try {
+            val destination = Destination()
+            val transfer = RecordingTransfer(context, destination)
+            assertEquals(ExportOutcome.SAVED, transfer.export(other.absolutePath, uri))
+            assertArrayEquals(other.readBytes(), destination.bytes.toByteArray())
+            val snapshot = transfer.createShareSnapshot(source.absolutePath)
+            assertArrayEquals(original, snapshot.readBytes())
+            assertEquals(ExportOutcome.SOURCE_UNAVAILABLE, transfer.export(source.name, uri))
+            assertOriginalUnchanged()
+        } finally { other.delete() }
+    }
+
     @Test fun legacyWavExportsWithoutCreatingSidecar() {
         sidecar.delete()
         val destination = Destination()
@@ -94,7 +113,7 @@ class RecordingTransferTest {
 
     @Test fun shareRejectsTraversalPartialJsonAndMissingFiles() {
         val transfer = RecordingTransfer(context)
-        listOf("../${source.name}", "..\\${source.name}", source.absolutePath,
+        listOf("../${source.name}", "..\\${source.name}", File(context.cacheDir, source.name).absolutePath,
             "${source.name}.part", sidecar.name, "missing.wav").forEach { name ->
             assertThrows(IllegalArgumentException::class.java) { transfer.prepareShare(name) }
         }

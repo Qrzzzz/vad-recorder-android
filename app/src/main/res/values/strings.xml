@@ -195,4 +195,9 @@
     <string name="share_failed">Could not prepare this recording for sharing. The original has not been changed.</string>
     <string name="transfer_no_app">Could not open the system picker. Please check that a compatible app is available.</string>
     <string name="playback_stop_listening_first">Stop listening to play</string>
+    <string name="metadata_save_failed">Audio saved, but metadata could not be saved.</string>
+    <string name="delete_metadata_remains">Audio deleted, but its metadata could not be removed. Retry cleanup.</string>
+    <string name="delete_audio_failed">Recording could not be deleted. Its metadata has been kept.</string>
+    <string name="action_retry">Retry</string>
+    <string name="recording_incomplete">Incomplete or unreadable audio. File kept; playback and transfer unavailable.</string>
 </resources>
