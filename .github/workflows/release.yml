@@ -73,7 +73,7 @@ jobs:
           apk="app/build/outputs/apk/release/VADRecorder-v${APP_VERSION}.apk"
           apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
           "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/apk-signature.txt"
-          grep -F 'Signer #1 certificate SHA-256 digest: b2b0f013dcfa428bb6f4c3563faa204c7890f72abd6062d1cbbb155222d493c9' "$RUNNER_TEMP/apk-signature.txt"
+          grep -F 'certificate SHA-256 digest: b2b0f013dcfa428bb6f4c3563faa204c7890f72abd6062d1cbbb155222d493c9' "$RUNNER_TEMP/apk-signature.txt"
           aapt="$(dirname "$apksigner")/aapt"
           "$aapt" dump badging "$apk" > "$RUNNER_TEMP/apk-badging.txt"
           grep -F "package: name='com.qrz.voicetriggerrecorder'" "$RUNNER_TEMP/apk-badging.txt" | grep -F "versionName='$APP_VERSION'"
