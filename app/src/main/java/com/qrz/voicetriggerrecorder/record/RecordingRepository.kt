@@ -2,15 +2,28 @@ package com.qrz.voicetriggerrecorder.record
 
 import android.content.Context
 import java.io.File
+import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class RecordingRepository(
     context: Context,
     private val storage: RecordingStorage = RecordingStorage(context),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val deleteFile: (File) -> Boolean = { it.delete() }
 ) {
+    suspend fun scan(): List<RecordingFile> = withContext(ioDispatcher) { listRecordings() }
 
-    fun listRecordings(): List<RecordingFile> {
-        return storage.roots().flatMap { it.listFiles()?.toList().orEmpty() }
+    suspend fun delete(identity: String): DeleteOutcome = withContext(ioDispatcher) { deleteRecording(identity) }
+
+    suspend fun playbackSource(identity: String): File = withContext(ioDispatcher) { fileForTransfer(identity) }
+
+    internal fun listRecordings(): List<RecordingFile> {
+        return storage.roots().flatMap {
+            if (!it.exists()) emptyList() else it.listFiles()?.toList()
+                ?: throw IOException("Cannot scan recording directory")
+        }
             .filter { it.isFile && runCatching { storage.resolve(it.absolutePath) }.isSuccess }
             .map { file ->
                 val metadata = RecordingMetadataStore.loadOrCreate(file)
@@ -39,7 +52,7 @@ class RecordingRepository(
 
     }
 
-    fun deleteRecording(identity: String): DeleteOutcome {
+    internal fun deleteRecording(identity: String): DeleteOutcome {
         val file = runCatching { storage.resolve(identity) }.getOrNull()
             ?: return DeleteOutcome.SOURCE_UNAVAILABLE
         return RecordingMetadataStore.withRecording(file) {

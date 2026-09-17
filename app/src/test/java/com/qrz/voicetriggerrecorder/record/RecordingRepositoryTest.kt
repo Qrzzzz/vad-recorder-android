@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import kotlinx.coroutines.asCoroutineDispatcher
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -21,6 +22,44 @@ class RecordingRepositoryTest {
     private lateinit var context: Context
     private lateinit var dir: File
     private lateinit var repository: RecordingRepository
+
+    @Test fun asyncScanAndDeleteMoveAllStorageAccessOffCallerThread() = kotlinx.coroutines.runBlocking {
+        val caller = Thread.currentThread()
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val dispatcher = executor.asCoroutineDispatcher()
+        var rootCalls = 0
+        var deleteCalls = 0
+        try {
+            val wav = finalizedWav("async.wav", 16_000, 320)
+            val storage = RecordingStorage(dir) {
+                assertTrue(Thread.currentThread() !== caller)
+                rootCalls++
+                emptyList()
+            }
+            val async = RecordingRepository(context, storage, dispatcher) {
+                assertTrue(Thread.currentThread() !== caller)
+                deleteCalls++
+                it.delete()
+            }
+            assertEquals(wav.path, async.scan().single().path)
+            assertEquals(wav.path, async.playbackSource(wav.path).path)
+            assertEquals(DeleteOutcome.DELETED, async.delete(wav.path))
+            assertTrue(async.scan().isEmpty())
+            assertTrue(rootCalls >= 4)
+            assertTrue(deleteCalls >= 1)
+        } finally {
+            dispatcher.close()
+        }
+    }
+
+    @Test fun unreadableDirectoryIsAnErrorRatherThanSuccessfulEmptyScan() = kotlinx.coroutines.runBlocking {
+        val notDirectory = File(dir, "not-directory").apply { writeText("x") }
+        val async = RecordingRepository(context, RecordingStorage(notDirectory) { emptyList() })
+        try {
+            async.scan()
+            org.junit.Assert.fail("Expected scan failure")
+        } catch (_: java.io.IOException) { }
+    }
 
     @Before
     fun setUp() {

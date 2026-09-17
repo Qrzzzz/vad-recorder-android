@@ -7,6 +7,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
+import com.qrz.voicetriggerrecorder.ui.RecordingHistoryViewModel
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -65,6 +67,9 @@ class PlaybackAcceptanceTest {
         // API 33+ locale changes need an active AppCompat delegate/context.
         scenario!!.onActivity { language.apply(); mode.apply() }
         compose.waitForIdle()
+        lateinit var history: RecordingHistoryViewModel
+        scenario!!.onActivity { history = ViewModelProvider(it)[RecordingHistoryViewModel::class.java] }
+        compose.waitUntil(15000) { fixtures.all { file -> history.state.value.files.any { it.path == file.path } } }
         scenario!!.onActivity {
             val configuration = it.resources.configuration
             assertEquals(if (language == AppLanguage.ENGLISH) "en" else "zh", configuration.locales[0].language)
@@ -112,7 +117,7 @@ class PlaybackAcceptanceTest {
         compose.waitForIdle()
         val device = UiDevice.getInstance(instrumentation)
         device.waitForIdle()
-        assertTrue(device.takeScreenshot(File(context.getExternalFilesDir(null), name)))
+        assertTrue(device.takeScreenshot(File(context.filesDir, name)))
     }
 
     @Test fun chineseDarkPauseTouchSeekResumeAndReplay() {
@@ -163,6 +168,7 @@ class PlaybackAcceptanceTest {
         clipAction(0, R.string.action_play).assertExists()
         clickClip(1, R.string.action_delete)
         compose.onAllNodesWithText(label(R.string.action_delete)).onLast().performClick()
+        compose.waitUntil(15000) { !fixtures[1].exists() }
         compose.waitForIdle()
         assertFalse(fixtures[1].exists())
         assertFalse(File(fixtures[1].parentFile, "${fixtures[1].name}.json").exists())
