@@ -6,7 +6,7 @@
 
 - 人声触发录音，适合放在床边整晚监听。
 - 前台服务常驻通知，减少系统回收导致的中断。
-- 首页可查看实时状态、最后一段录音和昨夜摘要。
+- 首页可查看实时状态、最后一段录音和昨夜摘要；历史录音后台加载，按日期分组、逐片段懒加载。
 - 支持应用内播放、暂停续播和进度拖动；选中片段显示已播放／总时长，也可删除误触发片段。
 - 每段已完成的录音可通过“更多”菜单分享，或用系统文件选择器另存为 WAV；取消或失败保留原录音。
 - 设置页支持灵敏度预设、自动停止时长、语言切换和 Android 原生夜间模式。
@@ -28,7 +28,7 @@
 ## 安装
 
 ```powershell
-adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.4.2.apk
+adb install -r .\app\build\outputs\apk\debug\VADRecorder-v2.4.3.apk
 ```
 
 升级时须使用与已安装版本相同的签名。签名不一致时先核对构建使用的密钥；卸载会清除应用录音，不应作为默认升级步骤。
@@ -95,4 +95,4 @@ adb shell ls /sdcard/Android/data/com.qrz.voicetriggerrecorder/files/Music/voice
 
 ## 版本发布与真机验收
 
-发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.4.2 更新内容见 [2.4.2 更新说明](./docs/releases/2.4.2.md)，验证结果与真机验收边界见 [2.4.2 验证记录](./docs/internal/v2.4.2-validation.md)。2.4 验证见 [2.4 验收记录](./docs/internal/v2.4-validation.md)。历史验证见 [2.3 验收记录](./docs/internal/v2.3-validation.md)和 [2.2 验收记录](./docs/internal/v2.2-validation.md)。
+发布签名、工作流用法和独立测试包说明见 [发布说明](./docs/internal/release.md)。2.4.3 更新内容见 [2.4.3 更新说明](./docs/releases/2.4.3.md)，验证结果与真机验收边界见 [2.4.3 验证记录](./docs/internal/v2.4.3-validation.md)。2.4 验证见 [2.4 验收记录](./docs/internal/v2.4-validation.md)。历史验证见 [2.3 验收记录](./docs/internal/v2.3-validation.md)和 [2.2 验收记录](./docs/internal/v2.2-validation.md)。

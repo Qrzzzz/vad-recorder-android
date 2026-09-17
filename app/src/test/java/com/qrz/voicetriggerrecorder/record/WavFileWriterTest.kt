@@ -13,6 +13,47 @@ class WavFileWriterTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
+    @Test fun frameWritesMatchLegacyBytesAcrossRatesAndBufferReuse() {
+        for (rate in listOf(16_000, 44_100)) {
+            val file = temporaryFolder.newFolder("frames-$rate").resolve("clip.wav")
+            val writer = WavFileWriter(file, rate)
+            val expected = java.io.ByteArrayOutputStream()
+            val extremes = shortArrayOf(0, -1, 1, Short.MIN_VALUE, Short.MAX_VALUE, -256, 256)
+            val frames = listOf(
+                extremes to extremes.size,
+                ShortArray(rate / 50) { (it * 173 - 32000).toShort() } to rate / 50,
+                extremes to 3,
+                extremes to 100,
+                ShortArray(0) to 5,
+                extremes to 0,
+                extremes to -1
+            )
+            frames.forEach { (samples, length) ->
+                assertTrue(writer.writeSamples(samples, length))
+                for (i in 0 until length.coerceIn(0, samples.size)) {
+                    expected.write(samples[i].toInt() and 255)
+                    expected.write((samples[i].toInt() shr 8) and 255)
+                }
+            }
+            assertEquals(4, writer.pcmWriteCalls)
+            assertEquals(expected.size().toLong(), writer.totalBytes)
+            assertTrue(writer.closeAndCommit())
+            assertTrue(writer.closeAndCommit())
+            assertArrayEquals(expected.toByteArray(), file.readBytes().drop(44).toByteArray())
+        }
+    }
+
+    @Test fun oneSecondUsesFiftyFrameWritesAtBothRates() {
+        for (rate in listOf(16_000, 44_100)) {
+            val file = temporaryFolder.newFolder("count-$rate").resolve("clip.wav")
+            val writer = WavFileWriter(file, rate)
+            repeat(50) { assertTrue(writer.writeSamples(ShortArray(rate / 50), rate / 50)) }
+            assertEquals(50, writer.pcmWriteCalls)
+            assertEquals(rate * 2L, writer.totalBytes)
+            assertTrue(writer.closeAndCommit())
+        }
+    }
+
     @Test
     fun closeAndCommitFinalizesHeaderAndMovesPartFile() {
         val wavFile = temporaryFolder.newFolder("recordings").resolve("clip.wav")

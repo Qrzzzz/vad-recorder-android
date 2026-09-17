@@ -17,6 +17,9 @@ class WavFileWriter(
     private var closed = false
     private var writeFailed = false
     private var committed = false
+    private var pcmBuffer = ByteArray(0)
+    internal var pcmWriteCalls = 0
+        private set
 
     init {
         val parent = finalFile.parentFile
@@ -38,13 +41,18 @@ class WavFileWriter(
         if (length <= 0) return true
         val raf = this.raf ?: return false
         val safeLength = length.coerceAtMost(samples.size)
+        if (safeLength == 0) return true
         try {
+            val byteCount = safeLength * 2
+            if (pcmBuffer.size < byteCount) pcmBuffer = ByteArray(byteCount)
             for (i in 0 until safeLength) {
                 val v = samples[i].toInt()
-                raf.write(v and 0xff)
-                raf.write((v shr 8) and 0xff)
+                pcmBuffer[i * 2] = v.toByte()
+                pcmBuffer[i * 2 + 1] = (v shr 8).toByte()
             }
-            dataBytes += (safeLength * 2).toLong()
+            raf.write(pcmBuffer, 0, byteCount)
+            pcmWriteCalls++
+            dataBytes += byteCount.toLong()
             return true
         } catch (_: Exception) {
             writeFailed = true

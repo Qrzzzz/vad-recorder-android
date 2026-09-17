@@ -76,8 +76,8 @@ import com.qrz.voicetriggerrecorder.record.RecordingRepository
 import com.qrz.voicetriggerrecorder.record.SensitivityPreset
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.SnackbarResult
 import com.qrz.voicetriggerrecorder.record.DeleteOutcome
@@ -89,7 +89,7 @@ private enum class MainTab(
     SETTINGS(R.string.tab_settings)
 }
 @Composable
-fun MainScreen(transfers: RecordingTransferViewModel) {
+fun MainScreen(transfers: RecordingTransferViewModel, history: RecordingHistoryViewModel) {
     val context = LocalContext.current
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -97,7 +97,8 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
     val repository = remember(context) { RecordingRepository(context) }
     val preferences = remember(context) { RecorderPreferences(context) }
     var selectedTab by remember { mutableStateOf(MainTab.HOME) }
-    var files by remember { mutableStateOf<List<RecordingFile>>(emptyList()) }
+    val historyState by history.state.collectAsState()
+    val files = historyState.files
     var permissionDeniedPermanently by rememberSaveable { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf(preferences.loadSensitivityPreset()) }
     var selectedLanguage by remember { mutableStateOf(preferences.loadAppLanguage()) }
@@ -110,7 +111,8 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
     }
     var resumeTick by remember { mutableIntStateOf(0) }
     var filePendingDelete by remember { mutableStateOf<RecordingFile?>(null) }
-    var fileLoadError by remember { mutableStateOf<String?>(null) }
+    val fileLoadError = if (historyState.loadFailed) stringResource(R.string.error_recordings_load_failed) else null
+    var playbackRequest by remember { mutableStateOf<Job?>(null) }
     val playbackController = remember { PlaybackController() }
     val playback by playbackController.state.collectAsState()
     val playbackBlocked by PlaybackInterlock.shared.blocked.collectAsState()
@@ -141,18 +143,18 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
         }
     }
 
-    fun refreshFiles() {
-        runCatching { repository.listRecordings() }
-            .onSuccess { latestFiles ->
-                fileLoadError = null
-                files = latestFiles
-                playbackController.retainFiles(latestFiles.map { it.path })
-            }
-            .onFailure {
-                files = emptyList()
-                fileLoadError = context.getString(R.string.error_recordings_load_failed)
-                playbackController.clear()
-            }
+    LaunchedEffect(files) {
+        playbackController.retainFiles(files.map { it.path })
+    }
+
+    LaunchedEffect(historyState.deleteError) {
+        historyState.deleteError?.let { error ->
+            val message = if (error.outcome == DeleteOutcome.METADATA_REMAINS)
+                R.string.delete_metadata_remains else R.string.delete_audio_failed
+            val retry = snackbar.showSnackbar(context.getString(message), context.getString(R.string.action_retry))
+            history.dismissDeleteError()
+            if (retry == SnackbarResult.ActionPerformed) history.delete(error.path)
+        }
     }
 
     fun saveAutoStop(hours: Int) {
@@ -218,6 +220,7 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
             if (event == Lifecycle.Event.ON_RESUME) {
                 resumeTick++
             } else if (event == Lifecycle.Event.ON_STOP) {
+                playbackRequest?.cancel()
                 playbackController.pause()
             }
         }
@@ -226,7 +229,7 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
     }
 
     LaunchedEffect(uiState.savedCount, uiState.serviceRunning, resumeTick) {
-        refreshFiles()
+        history.refresh()
         selectedPreset = preferences.loadSensitivityPreset()
         val loadedAutoStopHours = preferences.loadAutoStopHours()
         autoStopEnabled = loadedAutoStopHours > 0
@@ -297,7 +300,10 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
                     Tab(
                         selected = selectedTab == tab,
                         onClick = {
-                            if (tab != MainTab.HOME) playbackController.pause()
+                            if (tab != MainTab.HOME) {
+                                playbackRequest?.cancel()
+                                playbackController.pause()
+                            }
                             selectedTab = tab
                         },
                         text = { Text(stringResource(tab.titleRes)) }
@@ -318,6 +324,7 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
                     autoStopHours = autoStopHours,
                     errorMessage = uiState.errorMessage,
                     fileLoadError = fileLoadError,
+                    filesLoading = historyState.loading,
                     permissionDeniedPermanently = permissionDeniedPermanently,
                     audioPermissionGranted = audioPermissionGranted,
                     notificationPermissionGranted = notificationPermissionGranted,
@@ -338,27 +345,40 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
                             else -> audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
                         }
                     },
-                    onRefresh = { refreshFiles() },
+                    onRefresh = { history.refresh() },
                     onPlayPause = { file ->
-                        runCatching { repository.fileForTransfer(file.path) }
-                            .onSuccess { playbackController.toggle(it.path) }
-                            .onFailure { actionScope.launch { snackbar.showSnackbar(context.getString(R.string.transfer_source_unavailable)) } }
+                        playbackRequest?.cancel()
+                        playbackRequest = actionScope.launch {
+                            try {
+                                val source = repository.playbackSource(file.path)
+                                if (!history.state.value.deleting && history.state.value.files.any { it.path == source.path }) {
+                                    playbackController.toggle(source.path)
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                snackbar.showSnackbar(context.getString(R.string.transfer_source_unavailable))
+                            }
+                        }
                     },
                     onSeek = { path, position -> playbackController.seekTo(path, position) },
                     onDelete = { filePendingDelete = it },
-                    transferActionsEnabled = transferState.actionsEnabled,
+                    transferActionsEnabled = transferState.actionsEnabled && !historyState.deleting,
                     onShare = {
+                        playbackRequest?.cancel()
                         playbackController.pause()
                         transfers.share(it.path)
                     },
                     onExport = {
                         if (transfers.beginExport(it.path)) {
+                            playbackRequest?.cancel()
                             playbackController.pause()
                             try { exportLauncher.launch(it.name) }
                             catch (_: Exception) { transfers.launchFailed() }
                         }
                     },
                     onOpenSettingsTab = {
+                        playbackRequest?.cancel()
                         playbackController.pause()
                         selectedTab = MainTab.SETTINGS
                     }
@@ -416,25 +436,12 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
             confirmButton = {
                 TextButton(
                     onClick = {
+                        playbackRequest?.cancel()
                         if (playback.path == file.path) {
                             playbackController.clear()
                         }
                         filePendingDelete = null
-                        actionScope.launch {
-                            var retry: Boolean
-                            do {
-                                val result = withContext(Dispatchers.IO) { repository.deleteRecording(file.path) }
-                                refreshFiles()
-                                val message = when (result) {
-                                    DeleteOutcome.DELETED, DeleteOutcome.ALREADY_ABSENT -> null
-                                    DeleteOutcome.METADATA_REMAINS -> R.string.delete_metadata_remains
-                                    else -> R.string.delete_audio_failed
-                                }
-                                retry = message != null && snackbar.showSnackbar(
-                                    context.getString(message), context.getString(R.string.action_retry)
-                                ) == SnackbarResult.ActionPerformed
-                            } while (retry)
-                        }
+                        history.delete(file.path)
                     }
                 ) {
                     Text(stringResource(R.string.action_delete))
@@ -458,6 +465,7 @@ private fun HomeTabContent(
     autoStopHours: Int,
     errorMessage: String?,
     fileLoadError: String?,
+    filesLoading: Boolean,
     permissionDeniedPermanently: Boolean,
     audioPermissionGranted: Boolean,
     notificationPermissionGranted: Boolean,
@@ -478,7 +486,7 @@ private fun HomeTabContent(
     onOpenSettingsTab: () -> Unit
 ) {
     LazyColumn(
-        modifier = modifier.padding(horizontal = 20.dp),
+        modifier = modifier.padding(horizontal = 20.dp).testTag("history-list"),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
@@ -539,6 +547,12 @@ private fun HomeTabContent(
             }
         }
 
+        if (filesLoading) {
+            item(key = "history-loading", contentType = "loading") {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        }
+
         fileLoadError?.let { message ->
             item {
                 TipCard(
@@ -594,21 +608,27 @@ private fun HomeTabContent(
                 }
             }
         } else {
-            items(
-                items = nightGroups,
-                key = { group -> group.nightDate.toString() }
-            ) { group ->
-                NightGroupCard(
-                    group = group,
-                    playback = playback,
-                    playbackEnabled = playbackEnabled,
-                    onPlayPause = onPlayPause,
-                    onSeek = onSeek,
-                    onDelete = onDelete,
-                    transferActionsEnabled = transferActionsEnabled,
-                    onShare = onShare,
-                    onExport = onExport
-                )
+            nightGroups.forEach { group ->
+                item(key = "night:${group.nightDate}", contentType = "night-header") {
+                    NightGroupHeader(group)
+                }
+                items(group.recordings, key = { "recording:${it.path}" }, contentType = { "recording" }) { file ->
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Box(Modifier.padding(16.dp)) {
+                            RecordingItemCard(
+                                file = file,
+                                playback = playback.takeIf { it.path == file.path },
+                                playbackEnabled = playbackEnabled,
+                                onPlayPause = { onPlayPause(file) },
+                                onSeek = { onSeek(file.path, it) },
+                                onDelete = { onDelete(file) },
+                                transferActionsEnabled = transferActionsEnabled,
+                                onShare = { onShare(file) },
+                                onExport = { onExport(file) }
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -1310,58 +1330,20 @@ private fun EmptyNightSummaryCard() {
 }
 
 @Composable
-private fun NightGroupCard(
-    group: NightRecordingGroup,
-    playback: PlaybackState,
-    playbackEnabled: Boolean,
-    onPlayPause: (RecordingFile) -> Unit,
-    onSeek: (String, Int) -> Unit,
-    onDelete: (RecordingFile) -> Unit,
-    transferActionsEnabled: Boolean,
-    onShare: (RecordingFile) -> Unit,
-    onExport: (RecordingFile) -> Unit
-) {
+private fun NightGroupHeader(group: NightRecordingGroup) {
     val context = LocalContext.current
-
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                stringResource(
-                    R.string.recording_group_summary,
-                    formatNightSectionLabel(context, group.nightDate),
-                    formatClipCount(context, group.recordings.size),
-                    formatDuration(context, group.totalDurationMs)
-                ),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            group.recordings.forEachIndexed { index, file ->
-                RecordingItemCard(
-                    file = file,
-                    playback = playback.takeIf { it.path == file.path },
-                    playbackEnabled = playbackEnabled,
-                    onPlayPause = { onPlayPause(file) },
-                    onSeek = { onSeek(file.path, it) },
-                    onDelete = { onDelete(file) },
-                    transferActionsEnabled = transferActionsEnabled,
-                    onShare = { onShare(file) },
-                    onExport = { onExport(file) }
-                )
-
-                if (index != group.recordings.lastIndex) {
-                    HorizontalDivider()
-                }
-            }
-        }
-    }
+    Text(
+        stringResource(
+            R.string.recording_group_summary,
+            formatNightSectionLabel(context, group.nightDate),
+            formatClipCount(context, group.recordings.size),
+            formatDuration(context, group.totalDurationMs)
+        ),
+        modifier = Modifier.padding(top = 8.dp),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold
+    )
 }
-
 @Composable
 private fun RecordingItemCard(
     file: RecordingFile,

@@ -16,6 +16,10 @@ import com.qrz.voicetriggerrecorder.app.AppLanguage
 import com.qrz.voicetriggerrecorder.app.AppNightMode
 import com.qrz.voicetriggerrecorder.record.RecorderPreferences
 import com.qrz.voicetriggerrecorder.record.RecordingRepository
+import com.qrz.voicetriggerrecorder.record.RecordingMetadataStore
+import com.qrz.voicetriggerrecorder.record.RecordingCloseReason
+import com.qrz.voicetriggerrecorder.ui.RecordingHistoryViewModel
+import androidx.lifecycle.ViewModelProvider
 import com.qrz.voicetriggerrecorder.record.WavFileWriter
 import org.junit.After
 import org.junit.Assert.*
@@ -46,6 +50,11 @@ class TransferAcceptanceTest {
         val writer = WavFileWriter(source, 16000)
         repeat(3) { assertTrue(writer.writeSamples(ShortArray(16000), 16000)) }
         assertTrue(writer.closeAndCommit())
+        // Browsing legacy WAVs is read-only; seed finalized metadata explicitly.
+        assertTrue(RecordingMetadataStore.writeFinalized(
+            source, source.lastModified() - 3000, source.lastModified(), 16000, 0,
+            RecordingCloseReason.ManualStop, "acceptance"
+        ))
         original = source.readBytes()
     }
 
@@ -63,6 +72,9 @@ class TransferAcceptanceTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         scenario!!.onActivity { language.apply(); mode.apply() }
         compose.waitForIdle()
+        lateinit var history: RecordingHistoryViewModel
+        scenario!!.onActivity { history = ViewModelProvider(it)[RecordingHistoryViewModel::class.java] }
+        compose.waitUntil(15000) { history.state.value.files.any { it.path == source.path } }
         scenario!!.onActivity {
             assertEquals(if (language == AppLanguage.ENGLISH) "en" else "zh", it.resources.configuration.locales[0].language)
             assertEquals(
@@ -116,17 +128,19 @@ class TransferAcceptanceTest {
     private fun capture(name: String) {
         compose.waitForIdle()
         device.waitForIdle()
-        assertTrue(device.takeScreenshot(File(context.getExternalFilesDir(null), name)))
+        assertTrue(device.takeScreenshot(File(context.filesDir, name)))
     }
 
     private fun receiver() = run {
         // Drive Compose's test clock while the asynchronous copy publishes its chooser intent.
-        runCatching { compose.waitUntil(15000) { device.hasObject(By.text("WAV test receiver")) } }
-        device.findObject(By.text("WAV test receiver"))
+        // Android 11 can show the test application's package instead of the Activity label.
+        val selector = By.text(Pattern.compile("WAV test receiver|" + Pattern.quote(context.packageName + ".test")))
+        runCatching { compose.waitUntil(15000) { device.hasObject(selector) } }
+        device.findObject(selector)
     }.also {
         if (it == null) {
-            device.dumpWindowHierarchy(File(context.getExternalFilesDir(null), "v24-share-failure.xml"))
-            device.takeScreenshot(File(context.getExternalFilesDir(null), "v24-share-failure.png"))
+            device.dumpWindowHierarchy(File(context.filesDir, "v24-share-failure.xml"))
+            device.takeScreenshot(File(context.filesDir, "v24-share-failure.png"))
         }
     }
 
@@ -144,7 +158,7 @@ class TransferAcceptanceTest {
         clickSystem(By.res("android:id/title").text(Pattern.compile("Downloads|下载")))
         assertTrue(device.wait(Until.gone(By.text(Pattern.compile("Save to|保存到"))), 5000))
         device.waitForIdle()
-        device.dumpWindowHierarchy(File(context.getExternalFilesDir(null), "v24-picker-before-save.xml"))
+        device.dumpWindowHierarchy(File(context.filesDir, "v24-picker-before-save.xml"))
         clickSystem(By.res("android:id/button1"))
         val expectedHash = MessageDigest.getInstance("SHA-256").digest(original).joinToString("") { "%02x".format(it) }
         // The Snackbar can finish while Compose's test clock advances. Verify the actual file.
@@ -153,7 +167,7 @@ class TransferAcceptanceTest {
                 device.executeShellCommand("sha256sum /sdcard/Download/${source.name} 2>/dev/null").startsWith(expectedHash)
             }
         } catch (error: Exception) {
-            device.dumpWindowHierarchy(File(context.getExternalFilesDir(null), "v24-export-failure.xml"))
+            device.dumpWindowHierarchy(File(context.filesDir, "v24-export-failure.xml"))
             throw error
         }
         val exportedHash = device.executeShellCommand("sha256sum /sdcard/Download/${source.name}").trim().substringBefore(' ')
@@ -170,8 +184,8 @@ class TransferAcceptanceTest {
         receiver!!.click()
         val received = device.wait(Until.findObject(By.textStartsWith("SHARE_")), 10000)?.text
         if (received != "SHARE_OK:$expectedHash") {
-            device.dumpWindowHierarchy(File(context.getExternalFilesDir(null), "v24-receiver-failure.xml"))
-            device.takeScreenshot(File(context.getExternalFilesDir(null), "v24-receiver-failure.png"))
+            device.dumpWindowHierarchy(File(context.filesDir, "v24-receiver-failure.xml"))
+            device.takeScreenshot(File(context.filesDir, "v24-receiver-failure.png"))
         }
         assertEquals("SHARE_OK:$expectedHash", received)
         assertOriginalUnchanged()
