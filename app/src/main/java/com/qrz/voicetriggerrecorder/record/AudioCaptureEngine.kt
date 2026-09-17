@@ -16,11 +16,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 
-class AudioCaptureEngine(
+internal class AudioCaptureEngine(
     private val context: Context,
     private val sensitivityPreset: SensitivityPreset,
-    private val applyUiMutation: (RecorderUiStateMutation) -> Unit
+    private val applyUiMutation: (RecorderUiStateMutation) -> Unit,
+    private val beforeStart: suspend () -> Unit = {},
+    private val inputFactory: (() -> CaptureInput)? = null
 ) {
     companion object {
         private const val TAG = "VoiceTriggerRecorder"
@@ -33,27 +36,45 @@ class AudioCaptureEngine(
         val samplesPerFrame: Int
     )
 
-    private var running = false
-    @Volatile
-    private var requestedCloseReason = RecordingCloseReason.ServiceStop
+    internal interface CaptureInput {
+        val config: AudioConfig
+        fun start()
+        fun read(buffer: ShortArray): Int
+        fun stop()
+        fun release()
+    }
+
+    private val lifecycleLock = Any()
+    private var started = false
+    @Volatile private var closed = false
+    @Volatile private var requestedCloseReason = RecordingCloseReason.ServiceStop
+    private var input: CaptureInput? = null
     private var audioRecord: AudioRecord? = null
     private var noiseSuppressor: NoiseSuppressor? = null
 
     suspend fun start(): RecordingCloseReason = withContext(Dispatchers.Default) {
-        running = true
-        requestedCloseReason = RecordingCloseReason.ServiceStop
-        val config = createAudioRecordOrThrow()
-        val vad = VadEngineFactory.create(config.sampleRate, sensitivityPreset)
-        val recConfig = RecorderConfig(preferredSampleRate = config.sampleRate)
-        val stateMachine = RecordingStateMachine(
-            context = context,
-            config = recConfig,
-            vadEngineName = vad.javaClass.simpleName,
-            applyUiMutation = applyUiMutation
-        )
-
+        var stateMachine: RecordingStateMachine? = null
         try {
-            audioRecord?.startRecording()
+            // Test seam before acquisition: a prior close is terminal, even if start runs later.
+            beforeStart()
+            currentCoroutineContext().ensureActive()
+            val capture = synchronized(lifecycleLock) {
+                if (closed) return@withContext requestedCloseReason
+                check(!started) { "Capture engines are single-use" }
+                started = true
+                (inputFactory?.invoke() ?: createCaptureInput()).also {
+                    input = it
+                    it.start()
+                }
+            }
+            val config = capture.config
+            val vad = VadEngineFactory.create(config.sampleRate, sensitivityPreset)
+            stateMachine = RecordingStateMachine(
+                context = context,
+                config = RecorderConfig(preferredSampleRate = config.sampleRate),
+                vadEngineName = vad.javaClass.simpleName,
+                applyUiMutation = applyUiMutation
+            )
 
             val buffer = ShortArray(config.samplesPerFrame)
             var readCount = 0
@@ -62,14 +83,15 @@ class AudioCaptureEngine(
             var lastSpeechDetected = false
             var lastCountdownSeconds: Long? = null
 
-            while (running && currentCoroutineContext().isActive) {
+            while (!closed && currentCoroutineContext().isActive) {
                 val read = try {
-                    audioRecord?.read(buffer, 0, buffer.size) ?: -1
+                    capture.read(buffer)
                 } catch (e: Exception) {
                     Log.e(TAG, "AudioRecord read exception", e)
                     -1
                 }
 
+                if (closed || !currentCoroutineContext().isActive) break
                 if (read > 0) {
                     consecutiveErrors = 0
                     val frame = buffer.copyOf(read)
@@ -77,8 +99,7 @@ class AudioCaptureEngine(
                     val speech = vadResult.isSpeech
                     stateMachine.onFrame(frame, speech)
                     if (stateMachine.hasStorageFailure) {
-                        requestedCloseReason = RecordingCloseReason.StorageError
-                        running = false
+                        close(RecordingCloseReason.StorageError)
                         break
                     }
                     val countdownMs = stateMachine.countdownRemainingMs
@@ -108,8 +129,7 @@ class AudioCaptureEngine(
                     consecutiveErrors++
                     Log.e(TAG, "AudioRecord read error: $read (consecutive: $consecutiveErrors)")
                     if (consecutiveErrors >= 5) {
-                        requestedCloseReason = RecordingCloseReason.ReadError
-                        running = false
+                        close(RecordingCloseReason.ReadError)
                         applyUiMutation { current ->
                             current.copy(
                                 serviceRunning = false,
@@ -126,11 +146,20 @@ class AudioCaptureEngine(
             }
 
         } finally {
-            stateMachine.closeCurrentFileIfNeeded(requestedCloseReason)
-            if (stateMachine.hasStorageFailure) {
-                requestedCloseReason = RecordingCloseReason.StorageError
+            try {
+                stateMachine?.closeCurrentFileIfNeeded(requestedCloseReason)
+                if (stateMachine?.hasStorageFailure == true) {
+                    requestedCloseReason = RecordingCloseReason.StorageError
+                }
+            } finally {
+                synchronized(lifecycleLock) {
+                    closed = true
+                    runCatching { input?.stop() }
+                    runCatching { input?.release() }
+                    input = null
+                    releaseAudioResources()
+                }
             }
-            releaseAudioResources()
             applyUiMutation { current ->
                 current.copy(
                     speechDetected = false,
@@ -142,13 +171,30 @@ class AudioCaptureEngine(
     }
 
     fun close(reason: RecordingCloseReason) {
-        requestedCloseReason = reason
-        running = false
-        releaseAudioResources()
+        synchronized(lifecycleLock) {
+            if (closed) return
+            requestedCloseReason = reason
+            closed = true
+            // Unblock a read, but leave release to the worker after that read has returned.
+            runCatching { input?.stop() }
+        }
     }
 
     fun stop() {
         close(RecordingCloseReason.ServiceStop)
+    }
+
+    private fun createCaptureInput(): CaptureInput {
+        val config = createAudioRecordOrThrow()
+        val record = checkNotNull(audioRecord)
+        return object : CaptureInput {
+            override val config = config
+            override fun start() = record.startRecording()
+            override fun read(buffer: ShortArray) = record.read(buffer, 0, buffer.size)
+            override fun stop() = record.stop()
+            // Native resources are released together with the noise suppressor in finally.
+            override fun release() = Unit
+        }
     }
 
     private fun releaseAudioResources() {

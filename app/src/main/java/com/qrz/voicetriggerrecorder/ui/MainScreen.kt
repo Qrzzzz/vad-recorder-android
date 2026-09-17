@@ -107,6 +107,7 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
     var fileLoadError by remember { mutableStateOf<String?>(null) }
     val playbackController = remember { PlaybackController() }
     val playback by playbackController.state.collectAsState()
+    val playbackBlocked by PlaybackInterlock.shared.blocked.collectAsState()
     val transferState by transfers.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val exportLauncher = rememberLauncherForActivityResult(
@@ -317,6 +318,7 @@ fun MainScreen(transfers: RecordingTransferViewModel) {
                     latestNightGroup = latestNightGroup,
                     nightGroups = nightGroups,
                     playback = playback,
+                    playbackEnabled = !playbackBlocked,
                     readinessNeedsAttention = readinessNeedsAttention,
                     onPrimaryAction = {
                         when {
@@ -439,6 +441,7 @@ private fun HomeTabContent(
     latestNightGroup: NightRecordingGroup?,
     nightGroups: List<NightRecordingGroup>,
     playback: PlaybackState,
+    playbackEnabled: Boolean,
     readinessNeedsAttention: Boolean,
     onPrimaryAction: () -> Unit,
     onRefresh: () -> Unit,
@@ -574,6 +577,7 @@ private fun HomeTabContent(
                 NightGroupCard(
                     group = group,
                     playback = playback,
+                    playbackEnabled = playbackEnabled,
                     onPlayPause = onPlayPause,
                     onSeek = onSeek,
                     onDelete = onDelete,
@@ -1285,6 +1289,7 @@ private fun EmptyNightSummaryCard() {
 private fun NightGroupCard(
     group: NightRecordingGroup,
     playback: PlaybackState,
+    playbackEnabled: Boolean,
     onPlayPause: (RecordingFile) -> Unit,
     onSeek: (String, Int) -> Unit,
     onDelete: (RecordingFile) -> Unit,
@@ -1316,6 +1321,7 @@ private fun NightGroupCard(
                 RecordingItemCard(
                     file = file,
                     playback = playback.takeIf { it.path == file.path },
+                    playbackEnabled = playbackEnabled,
                     onPlayPause = { onPlayPause(file) },
                     onSeek = { onSeek(file.path, it) },
                     onDelete = { onDelete(file) },
@@ -1336,6 +1342,7 @@ private fun NightGroupCard(
 private fun RecordingItemCard(
     file: RecordingFile,
     playback: PlaybackState?,
+    playbackEnabled: Boolean,
     onPlayPause: () -> Unit,
     onSeek: (Int) -> Unit,
     onDelete: () -> Unit,
@@ -1377,12 +1384,13 @@ private fun RecordingItemCard(
         ) {
             OutlinedButton(
                 onClick = onPlayPause,
-                enabled = playback?.isLoading != true,
+                enabled = playbackEnabled && playback?.isLoading != true,
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
                     stringResource(
                         when {
+                            !playbackEnabled -> R.string.playback_stop_listening_first
                             playback?.isLoading == true -> R.string.playback_loading
                             playback?.isPlaying == true -> R.string.action_pause_playback
                             playback?.isComplete == true -> R.string.action_replay

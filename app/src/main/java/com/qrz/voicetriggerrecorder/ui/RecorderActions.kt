@@ -12,7 +12,14 @@ internal fun startService(context: android.content.Context) {
     val intent = Intent(context, RecordForegroundService::class.java).apply {
         action = RecordForegroundService.ACTION_START
     }
-    ContextCompat.startForegroundService(context, intent)
+    // Both the main button and the permission result use this entry point.
+    PlaybackInterlock.shared.block()
+    try {
+        ContextCompat.startForegroundService(context, intent)
+    } catch (error: Exception) {
+        if (!RecordForegroundService.uiState.value.serviceRunning) PlaybackInterlock.shared.unblock()
+        throw error
+    }
 }
 
 internal fun stopService(context: android.content.Context) {
